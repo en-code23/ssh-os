@@ -1,6 +1,6 @@
 import { app, shell } from 'electron'
 import { promises as fs } from 'fs'
-import { basename, join, posix } from 'path'
+import { basename, join, posix, resolve, sep } from 'path'
 import { randomUUID } from 'crypto'
 import { tmpdir } from 'os'
 import { Transfer } from '../shared/types'
@@ -51,6 +51,24 @@ function checkCancel(t: Transfer) {
 }
 
 // ---------- local helpers ----------
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
+/** A remote file name as one safe path component for the local disk, or null if unsafe. */
+export function safeLocalName(name: string): string | null {
+  const n = name.replace(/[. ]+$/, '')
+  // eslint-disable-next-line no-control-regex
+  if (!n || n.length > 255 || /[\/\\:<>"|?*\x00-\x1f]/.test(n) || n === '.' || n === '..' || RESERVED.test(n)) return null
+  return n
+}
+
+/** join(dir, name) that is guaranteed to stay inside dir. */
+function localChild(dir: string, name: string): string | null {
+  const n = safeLocalName(name)
+  if (!n) return null
+  const p = resolve(dir, n)
+  return p.startsWith(resolve(dir) + sep) ? p : null
+}
+
 async function localSize(path: string): Promise<number> {
   const st = await fs.stat(path)
   if (!st.isDirectory()) return st.size
@@ -119,7 +137,11 @@ async function downloadRec(rfs: RemoteFS, t: Transfer, remote: string, isDir: bo
   checkCancel(t)
   if (isDir) {
     await fs.mkdir(local, { recursive: true })
-    for (const e of await rfs.list(remote)) await downloadRec(rfs, t, e.path, e.type === 'dir', join(local, e.name), base)
+    for (const e of await rfs.list(remote)) {
+      const child = localChild(local, e.name)
+      if (!child) continue // skip names that would escape the folder or are invalid locally
+      await downloadRec(rfs, t, e.path, e.type === 'dir', child, base)
+    }
   } else {
     const start = base.n
     let last = 0
@@ -139,7 +161,7 @@ export async function download(serverId: string, items: { path: string; isDir: b
   try {
     const base = { n: 0 }
     for (const it of items) {
-      const target = await uniqueLocal(dir, posix.basename(it.path))
+      const target = await uniqueLocal(dir, safeLocalName(posix.basename(it.path)) ?? 'download')
       outPaths.push(target)
       await downloadRec(rfs, t, it.path, it.isDir, target, base)
     }
@@ -211,7 +233,8 @@ async function crossCopy(srcFS: RemoteFS, dstFS: RemoteFS, dstServerId: string, 
     const base = { n: 0 }
     const locals: string[] = []
     for (const it of items) {
-      const lp = join(tmp, posix.basename(it.path))
+      const lp = localChild(tmp, posix.basename(it.path))
+      if (!lp) throw new Error(`Unsafe file name: ${posix.basename(it.path)}`)
       locals.push(lp)
       await downloadRec(srcFS, t, it.path, it.isDir, lp, base)
     }

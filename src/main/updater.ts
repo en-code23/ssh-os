@@ -90,7 +90,9 @@ async function macCheck() {
   if (!asset) throw new Error(`Release ${version} has no ${name}`)
   const url: string = asset.browser_download_url
   if (!/^https:\/\/github\.com\//.test(url)) throw new Error('Unexpected download URL')
-  const sha256 = typeof asset.digest === 'string' && asset.digest.startsWith('sha256:') ? asset.digest.slice(7) : undefined
+  const sha256 = typeof asset.digest === 'string' && /^sha256:[a-f0-9]{64}$/.test(asset.digest) ? asset.digest.slice(7) : undefined
+  // never install an update we cannot verify
+  if (!sha256) throw new Error('The update has no checksum to verify it, so it was not installed.')
   macUpdate = { url, sha256 }
   set({ status: 'available', version, notes: rel.body ?? undefined, checkedAt: Date.now() })
 }
@@ -122,7 +124,7 @@ async function macDownload() {
   }
   await new Promise<void>((r, j) => out.end((e?: Error | null) => (e ? j(e) : r())))
   const digest = hash.digest('hex')
-  if (macUpdate.sha256 && digest !== macUpdate.sha256) throw new Error('Downloaded update failed its checksum. Try again.')
+  if (!macUpdate.sha256 || digest !== macUpdate.sha256) throw new Error('Downloaded update failed its checksum. Try again.')
   // unpack with ditto (preserves the bundle's symlinks and signature)
   await new Promise<void>((r, j) => {
     const p = spawn('/usr/bin/ditto', ['-x', '-k', zip, join(dir, 'app')])
