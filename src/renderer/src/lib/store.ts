@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ConnectionState, ServerConfig, Settings, Transfer } from '../../../shared/types'
 import { DEFAULT_SETTINGS } from '../../../shared/types'
-import { api, Item, uid } from './api'
+import { api, Item, uid, UpdateState } from './api'
 import { forgetHost, scanHost } from './mc/store'
 
 export type AppId =
@@ -69,6 +69,7 @@ interface State {
   spotlight: boolean
   clipboard?: { serverId: string; items: Item[]; cut: boolean }
   fullscreen: boolean
+  update?: UpdateState
 }
 
 export const useStore = create<State>(() => ({
@@ -309,6 +310,17 @@ export async function init() {
     }
   })
   api.on('settings', (s: Settings) => set({ settings: s }))
+  api.update.state().then((u) => set({ update: u })).catch(() => {})
+  api.on('update:state', (u: UpdateState) => {
+    const prev = get().update
+    set({ update: u })
+    const openUpdates = () => openWindow('settings', { props: { pane: 'updates' } })
+    if (u.status === 'available' && prev?.status !== 'available' && !get().settings.autoDownloadUpdates)
+      toast({ title: `SSH OS ${u.version} is available`, body: `You have ${u.current}.`, action: { label: 'Update', run: () => { api.update.download(); openUpdates() } } })
+    if (u.status === 'downloaded' && prev?.status !== 'downloaded')
+      toast({ title: `SSH OS ${u.version} is ready to install`, body: 'Restart to finish updating. Connections will be closed.', kind: 'success', action: { label: 'Restart', run: () => api.update.install() } })
+    if (u.status === 'error' && prev?.status === 'downloading') toast({ title: 'Update failed', body: u.error, kind: 'error' })
+  })
   api.on('app:fullscreen', (f: boolean) => set({ fullscreen: f }))
   api.on('transfer', (t: Transfer) => {
     set((s) => {

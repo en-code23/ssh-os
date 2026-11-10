@@ -18,6 +18,9 @@ mac:
   target:
     - target: dmg
       arch: [arm64, x64]
+    # used by the in-app updater
+    - target: zip
+      arch: [arm64, x64]
   hardenedRuntime: false
   identity: "-"
 dmg:
@@ -36,4 +39,8 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: SSH OS
-publish: null
+publish:
+  provider: github
+  owner: en-code23
+  repo: ssh-os
+  releaseType: release

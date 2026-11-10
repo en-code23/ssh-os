@@ -7,6 +7,7 @@ import { ServerConfig, Settings, QuickCommand } from '../shared/types'
 import { store } from './store'
 import * as conn from './connections'
 import * as xfer from './transfers'
+import * as updater from './updater'
 
 let win: BrowserWindow | null = null
 const isMac = process.platform === 'darwin'
@@ -65,6 +66,7 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { label: `About ${app.name}`, click: menuAction('about') },
+        { label: 'Check for Updates…', click: () => { broadcast('menu', 'updates'); updater.checkForUpdates() } },
         { type: 'separator' },
         { label: 'Settings…', accelerator: acc('Cmd+,', 'Ctrl+,'), click: menuAction('settings') },
         { type: 'separator' },
@@ -307,6 +309,10 @@ function registerIpc() {
       clearTimeout(t)
     }
   })
+  handle('update:state', () => updater.getUpdateState())
+  handle('update:check', () => updater.checkForUpdates())
+  handle('update:download', () => updater.downloadUpdate())
+  handle('update:install', () => updater.installUpdate())
   handle('app:info', () => ({ version: app.getVersion(), electron: process.versions.electron, platform: process.platform }))
   handle('path:join', (...parts: string[]) => posix.join(...parts))
 }
@@ -322,6 +328,7 @@ app.whenReady().then(() => {
   buildMenu()
   nativeTheme.on('updated', () => { if (!isMac && win && !win.isDestroyed()) win.setTitleBarOverlay(overlayColors()) })
   createWindow()
+  updater.initUpdater((s) => broadcast('update:state', s))
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

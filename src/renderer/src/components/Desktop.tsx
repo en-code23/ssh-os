@@ -36,6 +36,7 @@ function handleAction(action: string) {
   switch (action) {
     case 'about': return launch('about')
     case 'settings': return launch('settings')
+    case 'updates': return launch('settings', { props: { pane: 'updates' } })
     case 'servers': return launch('servers')
     case 'new-finder': return launch('finder', { forceNew: true })
     case 'new-terminal': return launch('terminal', { forceNew: true })

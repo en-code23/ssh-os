@@ -18,10 +18,14 @@ jobs:
             script: dist:mac
             files: |
               dist/*.dmg
+              dist/*.zip
+              dist/latest-mac.yml
           - os: windows-latest
             script: dist:win
             files: |
               dist/*.exe
+              dist/*.exe.blockmap
+              dist/latest.yml
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

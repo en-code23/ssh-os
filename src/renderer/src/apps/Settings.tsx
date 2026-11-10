@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { Image, Monitor, Palette, Server, SquareTerminal, FolderOpen, Keyboard } from 'lucide-react'
+import { useEffect } from 'react'
+import { Image, Monitor, Palette, Server, SquareTerminal, FolderOpen, Keyboard, RefreshCw, Download } from 'lucide-react'
 import { updateSettings, useStore, Win } from '../lib/store'
-import { isMac, kbd } from '../lib/api'
+import { api, isMac, kbd } from '../lib/api'
 import { Segmented, Switch, AppIcon } from '../components/ui'
 import { launch } from './launch'
 
 const WALLPAPERS = ['sonoma', 'ventura', 'monterey', 'aurora', 'graphite', 'sunrise']
 const ACCENTS = ['#0a84ff', '#bf5af2', '#ff375f', '#ff453a', '#ff9f0a', '#ffd60a', '#30d158', '#8e8e93']
 
-type Pane = 'appearance' | 'wallpaper' | 'dock' | 'finder' | 'terminal' | 'shortcuts'
+type Pane = 'appearance' | 'wallpaper' | 'dock' | 'finder' | 'terminal' | 'shortcuts' | 'updates'
 
 const PANES: { id: Pane; label: string; icon: any; bg: string }[] = [
   { id: 'appearance', label: 'Appearance', icon: Palette, bg: 'linear-gradient(180deg,#3a3a3c,#1c1c1e)' },
@@ -17,11 +18,13 @@ const PANES: { id: Pane; label: string; icon: any; bg: string }[] = [
   { id: 'finder', label: 'Finder', icon: FolderOpen, bg: 'linear-gradient(180deg,#5ac8fa,#007aff)' },
   { id: 'terminal', label: 'Terminal', icon: SquareTerminal, bg: 'linear-gradient(180deg,#48484a,#1c1c1e)' },
   { id: 'shortcuts', label: 'Keyboard', icon: Keyboard, bg: 'linear-gradient(180deg,#a1a1a6,#636366)' },
+  { id: 'updates', label: 'Software Update', icon: RefreshCw, bg: 'linear-gradient(180deg,#a1a1a6,#636366)' },
 ]
 
 export function SettingsApp({ win }: { win: Win }) {
   const s = useStore((st) => st.settings)
   const [pane, setPane] = useState<Pane>(win.props.pane ?? 'appearance')
+  useEffect(() => { if (win.props.pane) setPane(win.props.pane) }, [win.props.pane])
 
   return (
     <div className="split">
@@ -131,6 +134,7 @@ export function SettingsApp({ win }: { win: Win }) {
           </div>
         )}
         {pane === 'shortcuts' && <ShortcutList />}
+        {pane === 'updates' && <UpdatePane />}
       </div>
     </div>
   )
@@ -172,5 +176,69 @@ export function ShortcutList() {
         </div>
       ))}
     </div>
+  )
+}
+
+function UpdatePane() {
+  const s = useStore((st) => st.settings)
+  const u = useStore((st) => st.update)
+  const status = u?.status ?? 'idle'
+  const busy = status === 'checking' || status === 'downloading'
+  const pct = Math.round((u?.progress ?? 0) * 100)
+  return (
+    <>
+      <div className="group-box" style={{ marginBottom: 16 }}>
+        <div className="group-row" style={{ alignItems: 'flex-start', padding: '12px 0' }}>
+          <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
+            <AppIcon icon={RefreshCw} bg="linear-gradient(180deg,#a1a1a6,#636366)" size={44} />
+            <div>
+              <b style={{ fontSize: 14 }}>
+                {status === 'unsupported' ? 'Updates are not available in this build'
+                  : status === 'checking' ? 'Checking for updates…'
+                  : status === 'available' ? `SSH OS ${u?.version} is available`
+                  : status === 'downloading' ? `Downloading SSH OS ${u?.version}… ${pct}%`
+                  : status === 'downloaded' ? `SSH OS ${u?.version} is ready to install`
+                  : status === 'error' ? 'Couldn’t check for updates'
+                  : status === 'not-available' ? 'SSH OS is up to date'
+                  : 'Software Update'}
+              </b>
+              <div className="small muted" style={{ marginTop: 3 }}>
+                Current version {u?.current ?? '…'}
+                {u?.checkedAt ? ` · last checked ${new Date(u.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
+              </div>
+              {status === 'error' && <div className="small" style={{ color: 'var(--red)', marginTop: 4 }}>{u?.error}</div>}
+              {status === 'unsupported' && <div className="small muted" style={{ marginTop: 4 }}>Development builds don’t update themselves. Download the latest release from GitHub.</div>}
+              {status === 'downloading' && <div className="progress" style={{ width: 260, marginTop: 8 }}><div style={{ width: `${pct}%` }} /></div>}
+            </div>
+          </div>
+          <div className="row">
+            {status === 'available' && <button className="btn primary" onClick={() => api.update.download()}><Download size={12} /> Download & Install</button>}
+            {status === 'downloaded' && <button className="btn primary" onClick={() => api.update.install()}>Restart Now</button>}
+            {status !== 'downloaded' && status !== 'unsupported' && (
+              <button className="btn" disabled={busy} onClick={() => api.update.check()}>Check Now</button>
+            )}
+          </div>
+        </div>
+        {u?.notes && (status === 'available' || status === 'downloading' || status === 'downloaded') && (
+          <div className="group-row" style={{ display: 'block', padding: '10px 0' }}>
+            <div className="small muted" style={{ marginBottom: 4 }}>What’s new</div>
+            <div className="small" style={{ whiteSpace: 'pre-wrap', maxHeight: 180, overflow: 'auto', userSelect: 'text' }}>{u.notes.replace(/<[^>]+>/g, '').trim()}</div>
+          </div>
+        )}
+      </div>
+      <div className="group-box">
+        <div className="group-row">
+          <span>Check for updates automatically</span>
+          <Switch on={s.autoCheckUpdates} onChange={(v) => updateSettings({ autoCheckUpdates: v })} />
+        </div>
+        <div className="group-row">
+          <span>Download new updates in the background</span>
+          <Switch on={s.autoDownloadUpdates} onChange={(v) => updateSettings({ autoDownloadUpdates: v })} />
+        </div>
+      </div>
+      <p className="small muted" style={{ marginTop: 10, lineHeight: 1.5 }}>
+        SSH OS checks GitHub for a new release when it starts and every 6 hours. Updates are verified with the release checksum and installed when you restart the app.
+      </p>
+    </>
   )
 }

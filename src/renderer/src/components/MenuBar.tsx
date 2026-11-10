@@ -122,6 +122,7 @@ export function MenuBar() {
         onMouseDown={(e) =>
           open('logo', e, [
             { label: 'About SSH OS', onClick: () => launch('about') },
+            { label: useStore.getState().update?.status === 'downloaded' ? 'Restart to Update…' : 'Check for Updates…', onClick: () => { if (useStore.getState().update?.status === 'downloaded') api.update.install(); else { api.update.check(); launch('settings', { props: { pane: 'updates' } }) } } },
             { separator: true },
             { label: 'System Settings…', shortcut: '⌘,', onClick: () => launch('settings') },
             { label: 'Servers…', onClick: () => launch('servers') },

@@ -90,6 +90,8 @@ export interface Settings {
   terminalTheme: 'auto' | 'dark' | 'light' | 'ocean' | 'solarized'
   /** Minecraft app in the Dock: auto = only when a server folder is detected */
   showMinecraft: 'auto' | 'always' | 'never'
+  autoCheckUpdates: boolean
+  autoDownloadUpdates: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -102,6 +104,8 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   terminalTheme: 'auto',
   showMinecraft: 'auto',
+  autoCheckUpdates: true,
+  autoDownloadUpdates: true,
 }
 
 export interface StreamEvent {

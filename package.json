@@ -1,7 +1,7 @@
 {
   "name": "ssh-os",
   "productName": "SSH OS",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A macOS-style desktop for managing your servers over SSH, SFTP and FTP. Based on cube-ssh.",
   "main": "./out/main/index.js",
   "license": "MIT",
@@ -11,13 +11,14 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "electron-vite preview",
-    "dist": "electron-vite build && electron-builder --mac --dir",
-    "dist:dmg": "electron-vite build && electron-builder --mac dmg",
-    "dist:win": "electron-vite build && electron-builder --win",
-    "dist:mac": "electron-vite build && electron-builder --mac"
+    "dist": "electron-vite build && electron-builder --mac --dir --publish never",
+    "dist:dmg": "electron-vite build && electron-builder --mac dmg --publish never",
+    "dist:win": "electron-vite build && electron-builder --win --publish never",
+    "dist:mac": "electron-vite build && electron-builder --mac --publish never"
   },
   "dependencies": {
     "basic-ftp": "^6.2.6",
+    "electron-updater": "^6.8.11",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {

@@ -11,6 +11,16 @@ const c = window.api.call
 
 export type Item = { path: string; isDir: boolean }
 
+export interface UpdateState {
+  status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error' | 'unsupported'
+  current: string
+  version?: string
+  notes?: string
+  progress?: number
+  error?: string
+  checkedAt?: number
+}
+
 export const api = {
   servers: {
     list: (): Promise<ServerConfig[]> => c('servers:list'),
@@ -69,6 +79,12 @@ export const api = {
   pickKey: (): Promise<string | null> => c('dialog:pickKey'),
   copyText: (t: string): Promise<void> => c('clipboard:write', t),
   openExternal: (url: string): Promise<void> => c('shell:openExternal', url),
+  update: {
+    state: (): Promise<UpdateState> => c('update:state'),
+    check: (): Promise<void> => c('update:check'),
+    download: (): Promise<void> => c('update:download'),
+    install: (): Promise<void> => c('update:install'),
+  },
   httpJson: <T = any>(url: string, opts?: { method?: string; body?: unknown }): Promise<T> => c('http:json', url, opts),
   appInfo: (): Promise<{ version: string; electron: string }> => c('app:info'),
   on: window.api.on,
