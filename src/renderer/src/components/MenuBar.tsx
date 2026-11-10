@@ -116,7 +116,7 @@ export function MenuBar() {
   ]
 
   return (
-    <div className={`menubar ${fullscreen || !isMac ? '' : 'with-lights'}`}>
+    <div className={`menubar ${fullscreen || !isMac ? '' : 'with-lights'}`} data-tauri-drag-region>
       <button
         className={`mb-item mb-logo ${menu?.key === 'logo' ? 'open' : ''}`}
         onMouseDown={(e) =>
@@ -170,7 +170,7 @@ export function MenuBar() {
       }}>
         Window
       </button>
-      <div className="spacer" />
+      <div className="spacer" data-tauri-drag-region />
       {(running > 0 || transfers.length > 0) && (
         <button className="mb-item" title="Transfers" onMouseDown={(e) => setShowTransfers(showTransfers === null ? e.clientX : null)}>
           <ArrowDownUp size={14} />
@@ -195,6 +195,13 @@ export function MenuBar() {
         <Search size={14} />
       </button>
       <Clock />
+      {!isMac && (
+        <div className="win-controls">
+          <button title="Minimize" onClick={() => window.api.win.minimize()}><svg viewBox="0 0 10 10"><path d="M1 5h8" /></svg></button>
+          <button title="Maximize" onClick={() => window.api.win.toggleMaximize()}><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" /></svg></button>
+          <button className="close" title="Close" onClick={() => window.api.win.close()}><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" /></svg></button>
+        </div>
+      )}
       {menu && <Menu x={menu.x} y={28} items={menu.items} onClose={() => setMenu(null)} minWidth={240} />}
       {showTransfers !== null && <TransfersPopover x={showTransfers} onClose={() => setShowTransfers(null)} />}
     </div>

@@ -1,3 +1,4 @@
+import './tauri-bridge'
 import { createRoot } from 'react-dom/client'
 import '@xterm/xterm/css/xterm.css'
 import './styles/global.css'

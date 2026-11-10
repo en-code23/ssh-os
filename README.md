@@ -2,7 +2,7 @@
 
 **[Website & downloads](https://en-code23.github.io/ssh-os/)** · macOS & Windows
 
-A macOS-style desktop for managing your servers, packaged as a native Mac app (Electron).
+A macOS-style desktop for managing your servers. Native app for macOS and Windows built with [Tauri](https://tauri.app): about a 6 MB download.
 It started as a rewrite of [cube-ssh](https://github.com/Mhyar-nsi/cube-ssh).
 
 ## Features
@@ -20,40 +20,26 @@ It started as a rewrite of [cube-ssh](https://github.com/Mhyar-nsi/cube-ssh).
 
 ## Develop
 
+Needs Node 20+ and Rust (stable).
+
 ```bash
 npm install
-npm run dev          # hot-reloading dev app
+npm run dev          # Tauri dev app with hot reload
 npm run typecheck
+npm run build        # release app + installers in src-tauri/target/release/bundle
 ```
 
-If Electron fails to start with "Electron failed to install correctly", run `node node_modules/electron/install.js`.
+### Architecture
 
-## Build the Mac app
+- `src/renderer`: the React UI (desktop, window manager, Dock, menu bar, Spotlight, all apps).
+- `src/renderer/src/tauri-bridge.ts`: `window.api` on top of Tauri IPC/events. It also handles native file drops, window controls and the updater.
+- `src-tauri/src`: the Rust backend.
+  - `remote.rs`: SSH via `russh`, SFTP via `russh-sftp`, FTP/FTPS via `suppaftp`, plus exec, streams and terminals.
+  - `transfers.rs`: uploads, downloads and copies between servers.
+  - `store.rs`: settings and servers. Passwords live in the OS keychain.
+  - `ipc.rs`: the IPC dispatcher.
+  - `lib.rs`: menu and window setup.
 
-```bash
-npm run dist:dmg     # -> dist/SSH OS-1.0.0-arm64.dmg and dist/mac-arm64/SSH OS.app
-```
-
-The app is ad-hoc signed (not notarized). The first time you open it, macOS may block it. Right-click the app, choose **Open**, then confirm.
-
-## Keyboard
-
-| | |
-|---|---|
-| ⇧⌘Space | Spotlight |
-| ⌘K | Connect to Server |
-| ⌘N / ⇧⌘T / ⌘T | New Finder / New Terminal / New Tab |
-| Space | Quick Look |
-| ⌘I, ⌘D, ⌘⌫ | Get Info, Duplicate, Delete |
-| ⌘1 / ⌘2 / ⌘3 | Icons / List / Columns |
-| ⇧⌘G, ⇧⌘H | Go to Folder, Home |
-| ⇧⌘. | Show hidden files |
-
-## Layout
-
-- `src/main`: Electron main process. It holds the connection manager (`ssh2`, `basic-ftp`), the SFTP/FTP filesystem layer, transfers, encrypted storage and IPC.
-- `src/preload`: the context-isolated bridge.
-- `src/renderer`: the React UI (desktop, window manager, Dock, menu bar, Spotlight and the apps).
 
 ## Minecraft Servers app
 
@@ -84,6 +70,8 @@ Get the latest build from the [website](https://en-code23.github.io/ssh-os/) or 
 - macOS Intel: `SSH-OS-mac-x64.dmg`
 - Windows 10/11: `SSH-OS-Setup-x64.exe`
 
-Releases are built by GitHub Actions (`.github/workflows/release.yml`) whenever a `v*` tag is pushed. To build locally, use `npm run dist:mac` or `npm run dist:win`. Windows builds need a Windows machine or CI.
+The app updates itself. It checks GitHub for a new release at startup and every 6 hours, and updates are verified with a signing key. You can change this under System Settings → Software Update.
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`) when a `v*` tag is pushed. The `TAURI_SIGNING_PRIVATE_KEY` repository secret is needed to sign updates. Bump the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` first.
 
 On Windows the shortcuts use Ctrl instead of ⌘. A few shortcuts that would clash with shell keys in the terminal are different on Windows, e.g. Ctrl+Shift+T for a new tab and Ctrl+Alt+N for a new Finder window.
