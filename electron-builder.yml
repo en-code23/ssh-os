@@ -1,0 +1,35 @@
+appId: com.sshos.app
+productName: SSH OS
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - node_modules/cpu-features/**
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  artifactName: SSH-OS-mac-${arch}.${ext}
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  hardenedRuntime: false
+  identity: "-"
+dmg:
+  title: SSH OS
+win:
+  icon: build/icon.png
+  artifactName: SSH-OS-Setup-${arch}.${ext}
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SSH OS
+publish: null

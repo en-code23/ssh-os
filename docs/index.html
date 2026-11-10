@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SSH OS: a desktop for your servers</title>
+  <meta name="description" content="SSH OS turns your Linux servers into a macOS-style desktop: a Finder for SFTP/FTP, terminal tabs, Activity Monitor, code editor, and a full Minecraft server manager. Free for macOS and Windows." />
+  <meta property="og:title" content="SSH OS: a desktop for your servers" />
+  <meta property="og:description" content="Finder, Terminal, Activity Monitor and a Minecraft server manager for every machine you can SSH into." />
+  <meta property="og:image" content="assets/finder.jpg" />
+  <link rel="icon" href="assets/icon.png" />
+  <style>
+    :root {
+      --bg: #fbfbfd; --bg-2: #f2f2f5; --card: #ffffff; --text: #1d1d1f; --text-2: #5e5e66; --text-3: #8a8a93;
+      --border: rgba(0,0,0,.08); --accent: #0a6cff; --accent-2: #5e5ce6; --green: #23a047;
+      --shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 40px rgba(0,0,0,.08);
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0b0b0d; --bg-2: #141418; --card: #1a1a1f; --text: #f5f5f7; --text-2: #a1a1aa; --text-3: #71717a;
+        --border: rgba(255,255,255,.09); --accent: #3b8bff; --accent-2: #7d7bff; --green: #34c759;
+        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 40px rgba(0,0,0,.45); color-scheme: dark; }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+    nav { position: sticky; top: 0; z-index: 10; backdrop-filter: saturate(1.8) blur(20px); -webkit-backdrop-filter: saturate(1.8) blur(20px); background: color-mix(in srgb, var(--bg) 78%, transparent); border-bottom: 1px solid var(--border); }
+    nav .wrap { display: flex; align-items: center; gap: 22px; height: 52px; }
+    nav .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; color: var(--text); }
+    nav .brand img { width: 26px; height: 26px; }
+    nav .links { margin-left: auto; display: flex; gap: 22px; font-size: 14px; }
+    nav .links a { color: var(--text-2); }
+    nav .links a:hover { color: var(--text); text-decoration: none; }
+    @media (max-width: 640px) { nav .links a:not(.gh) { display: none; } }
+
+    header.hero { position: relative; overflow: hidden; text-align: center; padding: 72px 0 40px; }
+    .hero::before { content: ''; position: absolute; inset: -40% -10% auto; height: 640px; z-index: -1; filter: blur(60px); opacity: .55;
+      background: radial-gradient(40% 50% at 30% 40%, #6aa8ff, transparent 70%), radial-gradient(35% 45% at 70% 35%, #b18cff, transparent 70%), radial-gradient(40% 40% at 50% 70%, #ff9a7a, transparent 70%); }
+    .hero .icon { width: 120px; height: 120px; filter: drop-shadow(0 18px 30px rgba(30,60,160,.35)); }
+    .hero h1 { font-size: clamp(40px, 7vw, 72px); line-height: 1.04; letter-spacing: -.035em; margin: 18px 0 14px; font-weight: 800; }
+    .hero h1 span { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero p.lead { font-size: clamp(18px, 2.3vw, 22px); color: var(--text-2); max-width: 720px; margin: 0 auto 30px; }
+    .dl { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+    .btn { display: inline-flex; align-items: center; gap: 10px; padding: 13px 22px; border-radius: 980px; font-weight: 600; font-size: 16px; border: 1px solid var(--border); background: var(--card); color: var(--text); box-shadow: var(--shadow); transition: transform .15s ease, box-shadow .15s ease; }
+    .btn:hover { text-decoration: none; transform: translateY(-1px); }
+    .btn.primary { background: linear-gradient(180deg, #2f86ff, #0a63f0); color: #fff; border-color: transparent; }
+    .btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .btn small { display: block; font-weight: 500; font-size: 12px; opacity: .75; }
+    .btn .t { text-align: left; line-height: 1.2; }
+    .alt { margin-top: 14px; font-size: 14px; color: var(--text-3); }
+    .alt a { margin: 0 6px; }
+
+    .shot { margin: 46px auto 0; max-width: 1060px; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 1px var(--border), 0 40px 100px rgba(20,30,80,.28); }
+    .shot img { display: block; width: 100%; height: auto; }
+
+    section { padding: 84px 0; }
+    section.alt-bg { background: var(--bg-2); }
+    .eyebrow { text-transform: uppercase; letter-spacing: .12em; font-size: 12px; font-weight: 700; color: var(--accent); }
+    h2 { font-size: clamp(30px, 4.2vw, 46px); line-height: 1.1; letter-spacing: -.025em; margin: 8px 0 14px; }
+    .sub { color: var(--text-2); font-size: 18px; max-width: 700px; margin: 0 0 40px; }
+    .center { text-align: center; } .center .sub { margin-left: auto; margin-right: auto; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 22px; box-shadow: var(--shadow); }
+    .card h3 { margin: 12px 0 6px; font-size: 18px; }
+    .card p { margin: 0; color: var(--text-2); font-size: 15px; }
+    .ic { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 2px 6px rgba(0,0,0,.15); }
+    .ic svg { width: 22px; height: 22px; }
+
+    .split { display: grid; grid-template-columns: 1fr 1.25fr; gap: 48px; align-items: center; }
+    .split.rev { grid-template-columns: 1.25fr 1fr; }
+    .split.rev .text { order: 2; }
+    @media (max-width: 860px) { .split, .split.rev { grid-template-columns: 1fr; } .split.rev .text { order: 0; } }
+    .frame { border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px var(--border), 0 24px 60px rgba(0,0,0,.18); }
+    .frame img { display: block; width: 100%; height: auto; }
+    ul.ticks { list-style: none; padding: 0; margin: 0; }
+    ul.ticks li { padding: 7px 0 7px 30px; position: relative; color: var(--text-2); }
+    ul.ticks li b { color: var(--text); font-weight: 600; }
+    ul.ticks li::before { content: ''; position: absolute; left: 0; top: 11px; width: 18px; height: 18px; border-radius: 50%; background: var(--green) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E") center/11px no-repeat; }
+
+    .mc { background: linear-gradient(180deg, #102414, #0d1a10); color: #eaf5ea; }
+    .mc .sub, .mc ul.ticks li { color: #a9c7aa; }
+    .mc ul.ticks li b { color: #fff; }
+    .mc .eyebrow { color: #7cd38a; }
+    .mc .card { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.08); box-shadow: none; }
+    .mc .card p { color: #a9c7aa; }
+    .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 99px; background: rgba(124,211,138,.15); color: #7cd38a; margin: 0 6px 6px 0; }
+
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+    .gallery figure { margin: 0; }
+    .gallery figcaption { font-size: 14px; color: var(--text-2); margin-top: 8px; text-align: center; }
+
+    .steps { counter-reset: s; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .steps .card::before { counter-increment: s; content: counter(s); display: inline-flex; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; align-items: center; justify-content: center; font-size: 14px; }
+    code { font: 13px/1.5 'SF Mono', ui-monospace, Menlo, Consolas, monospace; background: var(--bg-2); border: 1px solid var(--border); padding: 1px 6px; border-radius: 6px; }
+
+    .dlcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    .dlcards .card { display: flex; flex-direction: column; gap: 10px; }
+    .dlcards .card.rec { outline: 2px solid var(--accent); }
+    .dlcards .card .btn { justify-content: center; margin-top: auto; }
+    .note { font-size: 14px; color: var(--text-3); }
+
+    footer { border-top: 1px solid var(--border); padding: 34px 0 50px; font-size: 14px; color: var(--text-3); }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 26px; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="wrap">
+      <a class="brand" href="#"><img src="assets/icon.png" alt="" />SSH OS</a>
+      <div class="links">
+        <a href="#features">Features</a>
+        <a href="#minecraft">Minecraft</a>
+        <a href="#screens">Screenshots</a>
+        <a href="#download">Download</a>
+        <a class="gh" href="https://github.com/en-code23/ssh-os">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="wrap">
+      <img class="icon" src="assets/icon.png" alt="SSH OS icon" />
+      <h1>Your servers,<br /><span>as a desktop.</span></h1>
+      <p class="lead">SSH OS turns every machine you can SSH or FTP into a familiar desktop: a Finder for your files, terminal tabs, an Activity Monitor, a code editor and a complete Minecraft server manager.</p>
+      <div class="dl" id="hero-dl">
+        <a class="btn primary" data-os="mac" href="https://github.com/en-code23/ssh-os/releases/latest/download/SSH-OS-mac-arm64.dmg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2 19h20"/></svg>
+          <span class="t">Download for Mac<small>Apple Silicon · macOS 12+</small></span>
+        </a>
+        <a class="btn" data-os="win" href="https://github.com/en-code23/ssh-os/releases/latest/download/SSH-OS-Setup-x64.exe">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10.5 4.4v7.1H3V5.5Zm0 13 7.5 1.1v-7H3v5.9Zm8.4 1.2L21 21v-8.4h-9.6v7.1Zm0-15.4v7.2H21V3l-9.6 1.3Z"/></svg>
+          <span class="t">Download for Windows<small>Windows 10 / 11 · 64-bit</small></span>
+        </a>
+      </div>
+      <div class="alt">Also: <a href="https://github.com/en-code23/ssh-os/releases/latest/download/SSH-OS-mac-x64.dmg">Mac (Intel)</a>·<a href="https://github.com/en-code23/ssh-os/releases">All releases</a>·<a href="https://github.com/en-code23/ssh-os">Source code</a></div>
+      <div class="shot"><img src="assets/finder.jpg" alt="SSH OS desktop with the Finder showing a remote server's files" /></div>
+    </div>
+  </header>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="center">
+        <div class="eyebrow">Everything in one window</div>
+        <h2>A whole operating system for your servers.</h2>
+        <p class="sub">Connect to as many machines as you like over SSH, SFTP, FTP or FTPS and work with them the way you work on your own computer.</p>
+      </div>
+      <div class="grid">
+        <div class="card"><div class="ic" style="background:linear-gradient(135deg,#6ac8ff,#1565d8)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg></div><h3>Finder</h3><p>Icon, list and column views, a sidebar of servers, Quick Look, Get Info with permissions, and drag and drop to upload. You can copy and paste between different servers.</p></div>
+        <div class="card"><div class="ic" style="background:linear-gradient(180deg,#3a3a3c,#111)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 8 4 4-4 4M12 17h7"/></svg></div><h3>Terminal</h3><p>Fast xterm.js terminal with tabs. Each tab can be a different server. Includes themes and clickable links.</p></div>
+        <div class="card"><div class="ic" style="background:linear-gradient(180deg,#34d399,#059669)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/></svg></div><h3>Multiple servers</h3><p>Save unlimited servers and import them from <code>~/.ssh/config</code>. Passwords are encrypted with the system keychain, and host keys are pinned on first connect.</p></div>
+        <div class="card"><div class="ic" style="background:linear-gradient(180deg,#2b2b2e,#0b0b0c)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div><h3>Activity Monitor</h3><p>Live CPU, memory, disk and network graphs. Find and quit processes, and start, stop or restart systemd services.</p></div>
+        <div class="card"><div class="ic" style="background:linear-gradient(180deg,#5b8cff,#3949db)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 4l-4 16"/></svg></div><h3>Code Editor</h3><p>Edit remote files with syntax highlighting for 20+ languages, tabs and ⌘S / Ctrl+S to save.</p></div>
+        <div class="card"><div class="ic" style="background:linear-gradient(135deg,#ff6b9a,#a855f7 55%,#3b82f6)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 4 14h7l-1 8 9-12h-7Z"/></svg></div><h3>Console, Network & Shortcuts</h3><p>Live logs with filtering, ping, traceroute, port scans and DNS lookups run from the server, and one-click saved commands.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt-bg">
+    <div class="wrap split">
+      <div class="text">
+        <div class="eyebrow">Finder for the cloud</div>
+        <h2>Browse a server like your own disk.</h2>
+        <ul class="ticks">
+          <li><b>Column view</b> with previews, plus icon and list views</li>
+          <li><b>Drag files in</b> from your computer to upload them instantly</li>
+          <li><b>Copy between servers</b>, even from SSH to FTP</li>
+          <li><b>Quick Look</b> images, PDFs, video and text with Space</li>
+          <li><b>Open with</b> the Code Editor or any app on your computer</li>
+        </ul>
+      </div>
+      <div class="frame"><img src="assets/columns.jpg" alt="Finder column view" loading="lazy" /></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap split rev">
+      <div class="text">
+        <div class="eyebrow">Know what's happening</div>
+        <h2>Activity Monitor, built in.</h2>
+        <ul class="ticks">
+          <li><b>Processes</b>, sortable and searchable, with quit and force quit</li>
+          <li><b>Systemd services</b> with start, stop, restart and logs</li>
+          <li><b>CPU, memory and network</b> history graphs</li>
+          <li><b>Disks</b> with usage at a glance</li>
+        </ul>
+      </div>
+      <div class="frame"><img src="assets/monitor.jpg" alt="Activity Monitor" loading="lazy" /></div>
+    </div>
+  </section>
+
+  <section class="mc" id="minecraft">
+    <div class="wrap">
+      <div class="split">
+        <div class="text">
+          <div class="eyebrow">Optional app</div>
+          <h2>Run Minecraft servers without the command line.</h2>
+          <p class="sub" style="margin-bottom:18px">When SSH OS finds a Minecraft server on a machine, the <b style="color:#fff">Minecraft Servers</b> app appears in the Dock. You can also create a new server in a few clicks.</p>
+          <div><span class="pill">Paper</span><span class="pill">Purpur</span><span class="pill">Fabric</span><span class="pill">Folia</span><span class="pill">Vanilla</span><span class="pill">Modrinth</span><span class="pill">Hangar</span><span class="pill">SpigotMC</span></div>
+        </div>
+        <div class="frame"><img src="assets/mc-overview.jpg" alt="Minecraft server overview" loading="lazy" /></div>
+      </div>
+      <div class="grid" style="margin-top:44px">
+        <div class="card"><h3>New server wizard</h3><p>Paper by default, any Minecraft version. It installs Java for you (no sudo), suggests memory for your machine, and walks you through every setting with help.</p></div>
+        <div class="card"><h3>Plugins, mods & packs</h3><p>Search Modrinth, Hangar and SpigotMC and install with one click. Required dependencies install too. Data packs and server resource packs are included.</p></div>
+        <div class="card"><h3>Automatic updates</h3><p>Scheduled updates for the server jar and your plugins, even while SSH OS is closed. Old versions are kept so you can roll back.</p></div>
+        <div class="card"><h3>Every setting, explained</h3><p>Each <code>server.properties</code> key has a typed editor and a “?” help popover. Also covers Java, JVM flags (Aikar/Paper), game rules and config files.</p></div>
+        <div class="card"><h3>Backups & restore</h3><p>World or full backups on a schedule with retention. Restoring keeps a safety copy of the current files.</p></div>
+        <div class="card"><h3>Always running</h3><p>Runs in a background tmux/screen session, restarts after crashes, starts on boot and supports scheduled restarts. Includes a live console with history.</p></div>
+      </div>
+      <div class="gallery" style="margin-top:28px">
+        <figure><div class="frame"><img src="assets/mc-wizard.jpg" alt="New server wizard" loading="lazy" /></div><figcaption>Create a server: Paper recommended</figcaption></figure>
+        <figure><div class="frame"><img src="assets/mc-browse.jpg" alt="Install plugins from Modrinth" loading="lazy" /></div><figcaption>Install plugins from Modrinth, Hangar & SpigotMC</figcaption></figure>
+        <figure><div class="frame"><img src="assets/mc-startup.jpg" alt="Startup and Java settings" loading="lazy" /></div><figcaption>Java, memory and JVM flags</figcaption></figure>
+        <figure><div class="frame"><img src="assets/mc-backups.jpg" alt="Backups" loading="lazy" /></div><figcaption>Scheduled backups with one-click restore</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <div class="wrap">
+      <div class="center"><div class="eyebrow">Screenshots</div><h2>Looks right at home.</h2><p class="sub">Light and dark appearance, wallpapers, a Dock with magnification, and Spotlight to jump anywhere.</p></div>
+      <div class="gallery">
+        <figure><div class="frame"><img src="assets/terminal.jpg" alt="Terminal" loading="lazy" /></div><figcaption>Terminal with tabs</figcaption></figure>
+        <figure><div class="frame"><img src="assets/dark.jpg" alt="Dark mode" loading="lazy" /></div><figcaption>Dark mode</figcaption></figure>
+        <figure><div class="frame"><img src="assets/spotlight.jpg" alt="Spotlight search" loading="lazy" /></div><figcaption>Spotlight</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt-bg" id="download">
+    <div class="wrap">
+      <div class="center"><div class="eyebrow">Free & open source</div><h2>Download SSH OS</h2><p class="sub">Version <span id="ver">1.0</span>, MIT licensed. Builds are made by GitHub Actions directly from the source.</p></div>
+      <div class="dlcards">
+        <div class="card" data-os="mac">
+          <h3 style="margin:0">macOS · Apple Silicon</h3>
+          <p class="note">M1, M2, M3, M4 and newer. macOS 12 or later.</p>
+          <a class="btn primary" href="https://github.com/en-code23/ssh-os/releases/latest/download/SSH-OS-mac-arm64.dmg">Download .dmg</a>
+        </div>
+        <div class="card" data-os="mac-intel">
+          <h3 style="margin:0">macOS · Intel</h3>
+          <p class="note">For Intel Macs. macOS 12 or later.</p>
+          <a class="btn" href="https://github.com/en-code23/ssh-os/releases/latest/download/SSH-OS-mac-x64.dmg">Download .dmg</a>
+        </div>
+        <div class="card" data-os="win">
+          <h3 style="margin:0">Windows</h3>
+          <p class="note">Windows 10 and 11, 64-bit. Also runs on Windows on ARM.</p>
+          <a class="btn primary" href="https://github.com/en-code23/ssh-os/releases/latest/download/SSH-OS-Setup-x64.exe">Download installer</a>
+        </div>
+      </div>
+      <div class="steps" style="margin-top:30px">
+        <div class="card"><h3>First launch on Mac</h3><p>The app is not notarized by Apple yet. Open the .dmg, drag SSH OS to Applications, then <b>right-click → Open</b> and confirm. If macOS says it is damaged, run <code>xattr -cr "/Applications/SSH OS.app"</code>.</p></div>
+        <div class="card"><h3>First launch on Windows</h3><p>The installer is not code-signed yet, so SmartScreen may warn you. Click <b>More info → Run anyway</b>.</p></div>
+        <div class="card"><h3>Add a server</h3><p>Enter an address and username, or import from <code>~/.ssh/config</code>. Connect, and the server appears on your desktop like a drive.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <span>SSH OS, MIT License. Based on <a href="https://github.com/Mhyar-nsi/cube-ssh">cube-ssh</a>.</span>
+      <span>Not affiliated with Apple, Microsoft or Mojang. Minecraft is a trademark of Mojang Studios.</span>
+      <span><a href="https://github.com/en-code23/ssh-os">GitHub</a> · <a href="https://github.com/en-code23/ssh-os/issues">Report an issue</a></span>
+    </div>
+  </footer>
+
+  <script>
+    // Put the visitor's platform first and show the latest version number.
+    (function () {
+      var ua = navigator.userAgent || ''
+      var isWin = /Windows/i.test(ua)
+      if (isWin) {
+        var hero = document.getElementById('hero-dl')
+        var win = hero.querySelector('[data-os="win"]'), mac = hero.querySelector('[data-os="mac"]')
+        win.classList.add('primary'); mac.classList.remove('primary'); hero.insertBefore(win, mac)
+      }
+      var rec = document.querySelector('.dlcards [data-os="' + (isWin ? 'win' : 'mac') + '"]')
+      if (rec) rec.classList.add('rec')
+      fetch('https://api.github.com/repos/en-code23/ssh-os/releases/latest').then(function (r) { return r.ok ? r.json() : null }).then(function (j) {
+        if (j && j.tag_name) document.getElementById('ver').textContent = j.tag_name.replace(/^v/, '')
+      }).catch(function () {})
+    })()
+  </script>
+</body>
+</html>
