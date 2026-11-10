@@ -10,22 +10,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": [
-      "node"
-    ],
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
-    "paths": {
-      "@/*": [
-        "./src/renderer/src/*"
-      ]
-    }
+    "types": ["node"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "paths": { "@/*": ["./src/renderer/src/*"] }
   },
-  "include": [
-    "src/**/*",
-    "vite.config.mts"
-  ]
+  "include": ["src/**/*", "electron.vite.config.ts"]
 }

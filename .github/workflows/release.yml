@@ -13,106 +13,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  mac:
-    runs-on: macos-latest
-    timeout-minutes: 60
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-latest
+            script: dist:mac
+            name: mac
+            files: |
+              dist/*.dmg
+              dist/*.zip
+              dist/latest-mac.yml
+          - os: windows-latest
+            script: dist:win
+            name: windows
+            files: |
+              dist/*.exe
+              dist/*.exe.blockmap
+              dist/latest.yml
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: 22, cache: npm }
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with: { targets: 'aarch64-apple-darwin,x86_64-apple-darwin' }
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with: { workspaces: src-tauri }
-      - run: npm ci --ignore-scripts
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm run typecheck
-      - name: Build Apple Silicon + Intel
+      - run: npm run ${{ matrix.script }}
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          npx tauri build --target aarch64-apple-darwin --bundles app,dmg
-          npx tauri build --target x86_64-apple-darwin --bundles app,dmg
-      - name: Collect
-        run: |
-          mkdir -p artifacts
-          for pair in aarch64-apple-darwin:arm64 x86_64-apple-darwin:x64; do
-            t=${pair%%:*}; a=${pair##*:}; B=src-tauri/target/$t/release/bundle
-            cp "$B"/dmg/*.dmg artifacts/SSH-OS-mac-$a.dmg
-            cp "$B/macos/SSH OS.app.tar.gz" artifacts/SSH-OS-mac-$a.app.tar.gz
-            cp "$B/macos/SSH OS.app.tar.gz.sig" artifacts/SSH-OS-mac-$a.app.tar.gz.sig
-            # lets SSH OS 1.0.x (Electron) self-update to this version
-            ditto -c -k --keepParent "$B/macos/SSH OS.app" artifacts/SSH-OS-mac-$a.zip
-          done
-          ls -la artifacts
+          CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with: { name: mac, path: artifacts/*, retention-days: 7 }
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.files }}
+          retention-days: 7
 
-  windows:
-    runs-on: windows-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with: { node-version: 22, cache: npm }
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with: { workspaces: src-tauri }
-      - run: npm ci --ignore-scripts
-      - run: npm run typecheck
-      - name: Build
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --bundles nsis
-      - name: Collect
-        shell: bash
-        run: |
-          mkdir -p artifacts
-          B=src-tauri/target/release/bundle/nsis
-          cp "$B"/*-setup.exe artifacts/SSH-OS-Setup-x64.exe
-          cp "$B"/*-setup.exe.sig artifacts/SSH-OS-Setup-x64.exe.sig
-          # latest.yml lets SSH OS 1.0.x (Electron) self-update to this version
-          node -e '
-            const fs = require("fs"), c = require("crypto");
-            const f = "artifacts/SSH-OS-Setup-x64.exe", b = fs.readFileSync(f);
-            const sha = c.createHash("sha512").update(b).digest("base64");
-            const v = require("./src-tauri/tauri.conf.json").version;
-            fs.writeFileSync("artifacts/latest.yml", `version: ${v}\nfiles:\n  - url: SSH-OS-Setup-x64.exe\n    sha512: ${sha}\n    size: ${b.length}\npath: SSH-OS-Setup-x64.exe\nsha512: ${sha}\nreleaseDate: '"'"'${new Date().toISOString()}'"'"'\n`);
-          '
-          ls -la artifacts
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with: { name: windows, path: artifacts/*, retention-days: 7 }
-
-  # Publish only after EVERY platform built, so "latest" never points at a release missing files.
+  # Publish only after EVERY platform built, so "latest" never points at a
+  # release that is missing files (which made the download links 404).
   release:
-    needs: [mac, windows]
+    needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { path: artifacts, merge-multiple: true }
-      - name: Updater manifest (latest.json)
-        run: |
-          node -e '
-            const fs = require("fs");
-            const tag = process.env.GITHUB_REF_NAME, base = `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${tag}/`;
-            const sig = (f) => fs.readFileSync("artifacts/" + f + ".sig", "utf8").trim();
-            const p = (f) => ({ signature: sig(f), url: base + f });
-            fs.writeFileSync("artifacts/latest.json", JSON.stringify({
-              version: require("./src-tauri/tauri.conf.json").version,
-              notes: `See https://github.com/${process.env.GITHUB_REPOSITORY}/releases/tag/${tag}`,
-              pub_date: new Date().toISOString(),
-              platforms: {
-                "darwin-aarch64": p("SSH-OS-mac-arm64.app.tar.gz"),
-                "darwin-x86_64": p("SSH-OS-mac-x64.app.tar.gz"),
-                "windows-x86_64": p("SSH-OS-Setup-x64.exe"),
-              },
-            }, null, 2));
-          '
-          cat artifacts/latest.json
-          ls -la artifacts
+        with:
+          path: artifacts
+          merge-multiple: true
+      - run: ls -la artifacts
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: artifacts/*

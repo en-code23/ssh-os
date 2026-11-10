@@ -123,14 +123,13 @@ input, textarea, [contenteditable] { user-select: text; }
   position: absolute; top: 0; left: 0; right: 0; height: 28px; z-index: 100000;
   display: flex; align-items: center; padding: 0 10px 0 8px; gap: 2px;
   background: var(--menubar-bg);
-  backdrop-filter: blur(40px) saturate(1.6); -webkit-backdrop-filter: blur(40px) saturate(1.6);
+  backdrop-filter: blur(40px) saturate(1.6);
   -webkit-app-region: drag;
   color: var(--menubar-text);
   font-size: 13px;
 }
 .menubar.with-lights { padding-left: 78px; }
 .menubar > * { -webkit-app-region: no-drag; }
-.menubar .spacer, .menubar { -webkit-user-select: none; }
 .menubar .spacer { flex: 1; -webkit-app-region: drag; align-self: stretch; }
 .mb-item { padding: 2px 9px; border-radius: 5px; height: 22px; display: flex; align-items: center; gap: 6px; white-space: nowrap; background: none; border: 0; }
 .mb-item:hover, .mb-item.open { background: rgba(255,255,255,.2); }
@@ -142,7 +141,7 @@ input, textarea, [contenteditable] { user-select: text; }
 .menu {
   position: fixed; z-index: 200000; min-width: 220px; padding: 5px;
   background: var(--menu-bg);
-  backdrop-filter: blur(50px) saturate(1.8); -webkit-backdrop-filter: blur(50px) saturate(1.8);
+  backdrop-filter: blur(50px) saturate(1.8);
   border-radius: 9px;
   box-shadow: 0 0 0 0.5px var(--border-strong), 0 10px 40px rgba(0,0,0,.28);
   color: var(--text);
@@ -169,7 +168,7 @@ input, textarea, [contenteditable] { user-select: text; }
   pointer-events: auto;
   display: flex; align-items: flex-end; gap: 4px; padding: 5px 7px;
   background: var(--dock-bg);
-  backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  backdrop-filter: blur(30px) saturate(1.8);
   border-radius: 20px;
   box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.35), 0 0 0 0.5px rgba(0,0,0,.25), 0 10px 30px rgba(0,0,0,.25);
 }
@@ -180,7 +179,7 @@ input, textarea, [contenteditable] { user-select: text; }
 :root:not(.dark) .dock-item .dot { background: rgba(0,0,0,.65); }
 .dock-item .tip {
   position: absolute; bottom: calc(100% + 12px); padding: 4px 10px; border-radius: 6px; white-space: nowrap;
-  background: var(--menu-bg); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); color: var(--text); font-size: 13px;
+  background: var(--menu-bg); backdrop-filter: blur(30px); color: var(--text); font-size: 13px;
   box-shadow: 0 0 0 0.5px var(--border-strong), 0 4px 14px rgba(0,0,0,.2);
   opacity: 0; transform: translateY(4px); transition: all .12s; pointer-events: none;
 }
@@ -268,7 +267,7 @@ input, textarea, [contenteditable] { user-select: text; }
 .split { flex: 1; display: flex; min-height: 0; }
 .sidebar {
   width: 190px; flex-shrink: 0; overflow-y: auto; padding: 8px 10px;
-  background: var(--sidebar-bg); backdrop-filter: blur(40px); -webkit-backdrop-filter: blur(40px);
+  background: var(--sidebar-bg); backdrop-filter: blur(40px);
   border-right: 1px solid var(--border);
 }
 .sb-section { font-size: 11px; font-weight: 700; color: var(--text-3); padding: 10px 8px 4px; display: flex; align-items: center; justify-content: space-between; }
@@ -336,7 +335,7 @@ input, textarea, [contenteditable] { user-select: text; }
 @keyframes fade { from { opacity: 0; } }
 .alert {
   width: 280px; padding: 20px 16px 16px; border-radius: 12px; text-align: center;
-  background: var(--menu-bg); backdrop-filter: blur(50px) saturate(1.8); -webkit-backdrop-filter: blur(50px) saturate(1.8);
+  background: var(--menu-bg); backdrop-filter: blur(50px) saturate(1.8);
   box-shadow: 0 0 0 0.5px var(--border-strong), 0 20px 60px rgba(0,0,0,.35);
   animation: pop .18s cubic-bezier(.2,.9,.3,1.3);
 }
@@ -358,7 +357,7 @@ input, textarea, [contenteditable] { user-select: text; }
 .toasts { position: fixed; top: 36px; right: 12px; z-index: 160000; display: flex; flex-direction: column; gap: 8px; width: 340px; }
 .toast {
   display: flex; gap: 10px; padding: 11px 12px; border-radius: 14px;
-  background: var(--menu-bg); backdrop-filter: blur(40px) saturate(1.8); -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  background: var(--menu-bg); backdrop-filter: blur(40px) saturate(1.8);
   box-shadow: 0 0 0 0.5px var(--border-strong), 0 8px 30px rgba(0,0,0,.25);
   animation: slideIn .3s cubic-bezier(.2,.9,.3,1.1);
 }
@@ -370,7 +369,7 @@ input, textarea, [contenteditable] { user-select: text; }
 .spotlight-wrap { position: fixed; inset: 0; z-index: 170000; display: flex; justify-content: center; padding-top: 20vh; }
 .spotlight {
   width: 640px; max-width: 90vw; border-radius: 14px; overflow: hidden; height: fit-content;
-  background: var(--menu-bg); backdrop-filter: blur(50px) saturate(1.8); -webkit-backdrop-filter: blur(50px) saturate(1.8);
+  background: var(--menu-bg); backdrop-filter: blur(50px) saturate(1.8);
   box-shadow: 0 0 0 0.5px var(--border-strong), 0 30px 80px rgba(0,0,0,.45);
   animation: pop .15s ease-out;
 }
@@ -521,7 +520,7 @@ mark { background: color-mix(in srgb, var(--yellow) 60%, transparent); color: in
 .help-btn { border: 0; background: none; padding: 1px; color: var(--text-3); display: inline-flex; border-radius: 50%; }
 .help-btn:hover { color: var(--accent); }
 .popover-backdrop { position: fixed; inset: 0; z-index: 180000; }
-.popover { position: fixed; width: 320px; padding: 10px 12px; border-radius: 10px; background: var(--menu-bg); backdrop-filter: blur(40px) saturate(1.8); -webkit-backdrop-filter: blur(40px) saturate(1.8); box-shadow: 0 0 0 0.5px var(--border-strong), 0 10px 30px rgba(0,0,0,.25); font-size: 12px; white-space: pre-line; animation: menuIn .12s ease-out; }
+.popover { position: fixed; width: 320px; padding: 10px 12px; border-radius: 10px; background: var(--menu-bg); backdrop-filter: blur(40px) saturate(1.8); box-shadow: 0 0 0 0.5px var(--border-strong), 0 10px 30px rgba(0,0,0,.25); font-size: 12px; white-space: pre-line; animation: menuIn .12s ease-out; }
 .wizard-steps { display: flex; justify-content: center; gap: 4px; padding: 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; }
 .wizard-steps button { border: 0; background: none; display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 14px; color: var(--text-2); }
 .wizard-steps button.on { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); font-weight: 600; }
@@ -541,13 +540,4 @@ mark { background: color-mix(in srgb, var(--yellow) 60%, transparent); color: in
 
 /* ---------------- Windows / Linux ---------------- */
 :root.platform-win { --font: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, system-ui, sans-serif; --mono: 'Cascadia Mono', Consolas, 'SF Mono', monospace; }
-:root.platform-win .menubar { padding-right: 0; }
-.win-controls { display: flex; align-self: stretch; margin-left: 6px; }
-.win-controls button { width: 46px; border: 0; background: transparent; color: var(--menubar-text); display: flex; align-items: center; justify-content: center; }
-.win-controls button:hover { background: rgba(128,128,128,.25); }
-.win-controls button.close:hover { background: #e81123; color: #fff; }
-.win-controls svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1; }
-
-/* WebKit pauses CSS animations while the window is hidden/occluded, which would freeze
-   entrance animations on their first (invisible) frame. Only animate while visible. */
-:root:not(.page-visible) *, :root:not(.page-visible) *::before, :root:not(.page-visible) *::after { animation: none !important; }
+:root.platform-win .menubar { padding-right: 150px; }
