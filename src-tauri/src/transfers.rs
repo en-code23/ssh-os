@@ -88,6 +88,34 @@ fn remote_size<'a>(fs: &'a Fs, path: &'a str, is_dir: bool) -> Pin<Box<dyn Futur
     })
 }
 
+/// Turn a remote file name into a safe single path component for the local disk.
+/// Rejects separators, `.`/`..`, drive prefixes, NTFS streams (`:`), control characters,
+/// and Windows reserved device names; trims trailing dots/spaces (ignored by Windows).
+pub fn safe_local_name(name: &str) -> Option<String> {
+    let n = name.trim_end_matches([' ', '.']);
+    if n.is_empty() || n.len() > 255 || n.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')) {
+        return None;
+    }
+    let stem = n.split('.').next().unwrap_or("").to_ascii_uppercase();
+    const RESERVED: &[&str] = &["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
+    if RESERVED.contains(&stem.as_str()) {
+        return None;
+    }
+    let mut comps = Path::new(n).components();
+    match (comps.next(), comps.next()) {
+        (Some(std::path::Component::Normal(_)), None) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// `dir.join(name)` that is guaranteed to stay inside `dir`.
+fn local_child(dir: &Path, name: &str) -> Result<PathBuf> {
+    match safe_local_name(name) {
+        Some(n) => Ok(dir.join(n)),
+        None => bail!("Refusing to save a file with an unsafe name: {name:?}"),
+    }
+}
+
 fn unique_local(dir: &Path, name: &str) -> PathBuf {
     let mut c = dir.join(name);
     let (stem, ext) = match name.rfind('.') {
@@ -154,12 +182,10 @@ fn download_rec<'a>(fs: &'a Fs, t: &'a T<'a>, remote: String, is_dir: bool, loca
         if is_dir {
             std::fs::create_dir_all(&local)?;
             for e in fs.list(&remote).await? {
-                let name = e["name"].as_str().unwrap_or("").to_string();
-                // never let a remote name escape the target directory
-                if name.contains('/') || name.contains('\\') || name == ".." || name == "." {
-                    continue;
-                }
-                download_rec(fs, t, e["path"].as_str().unwrap_or("").into(), e["type"] == "dir", local.join(&name)).await?;
+                let name = e["name"].as_str().unwrap_or("");
+                // never let a remote name escape the target directory; skip names that are unsafe locally
+                let Ok(child) = local_child(&local, name) else { continue };
+                download_rec(fs, t, e["path"].as_str().unwrap_or("").into(), e["type"] == "dir", child).await?;
             }
         } else {
             let start = t.base.load(Ordering::Relaxed);
@@ -215,7 +241,7 @@ impl Transfers {
         let mut res = Ok(());
         std::fs::create_dir_all(&dir)?;
         for i in &list {
-            let target = unique_local(&dir, &pbase(&i.path));
+            let target = unique_local(&dir, &safe_local_name(&pbase(&i.path)).unwrap_or_else(|| "download".into()));
             outs.push(target.clone());
             if let Err(e) = download_rec(&s.fs, &t, i.path.clone(), i.is_dir, target).await {
                 res = Err(e);
@@ -269,7 +295,7 @@ impl Transfers {
         let res: Result<()> = async {
             let mut locals = Vec::new();
             for i in &list {
-                let lp = tmp.join(pbase(&i.path));
+                let lp = local_child(&tmp, &pbase(&i.path))?;
                 locals.push(lp.clone());
                 download_rec(src, &t, i.path.clone(), i.is_dir, lp).await?;
             }
@@ -284,5 +310,24 @@ impl Transfers {
         let _ = std::fs::remove_dir_all(&tmp);
         let _ = pdir;
         res
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_local_name as s;
+    #[test]
+    fn rejects_unsafe_names() {
+        for bad in ["..", ".", "", "a/b", "a\\b", "C:evil", "file:stream", "CON", "con.txt", "LPT1", "x\u{0}y", "a?b", "...", "  "] {
+            assert_eq!(s(bad), None, "{bad:?} should be rejected");
+        }
+    }
+    #[test]
+    fn keeps_normal_names() {
+        assert_eq!(s("plugin-1.2.jar").as_deref(), Some("plugin-1.2.jar"));
+        assert_eq!(s("my world").as_deref(), Some("my world"));
+        assert_eq!(s(".bashrc").as_deref(), Some(".bashrc"));
+        assert_eq!(s("ünïcode ✓.txt").as_deref(), Some("ünïcode ✓.txt"));
+        assert_eq!(s("trailing. ").as_deref(), Some("trailing"));
     }
 }
