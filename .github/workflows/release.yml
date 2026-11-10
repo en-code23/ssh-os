@@ -13,55 +13,77 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - os: macos-latest
-            script: dist:mac
-            name: mac
-            files: |
-              dist/*.dmg
-              dist/*.zip
-              dist/latest-mac.yml
-          - os: windows-latest
-            script: dist:win
-            name: windows
-            files: |
-              dist/*.exe
-              dist/*.exe.blockmap
-              dist/latest.yml
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with: { targets: 'aarch64-apple-darwin,x86_64-apple-darwin' }
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with: { workspaces: src-tauri }
+      - run: npm ci --ignore-scripts
       - run: npm run typecheck
-      - run: npm run ${{ matrix.script }}
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Build Apple Silicon + Intel
+        run: |
+          npx tauri build --target aarch64-apple-darwin --bundles app,dmg
+          npx tauri build --target x86_64-apple-darwin --bundles app,dmg
+      - name: Collect
+        run: |
+          mkdir -p artifacts
+          for pair in aarch64-apple-darwin:arm64 x86_64-apple-darwin:x64; do
+            t=${pair%%:*}; a=${pair##*:}; B=src-tauri/target/$t/release/bundle
+            cp "$B"/dmg/*.dmg artifacts/SSH-OS-mac-$a.dmg
+            # used by the in-app updater (2.x) and by SSH OS 1.0.x (Electron) to update to this version
+            ditto -c -k --keepParent "$B/macos/SSH OS.app" artifacts/SSH-OS-mac-$a.zip
+          done
+          ls -la artifacts
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: ${{ matrix.name }}
-          path: ${{ matrix.files }}
-          retention-days: 7
+        with: { name: mac, path: artifacts/*, retention-days: 7 }
 
-  # Publish only after EVERY platform built, so "latest" never points at a
-  # release that is missing files (which made the download links 404).
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with: { workspaces: src-tauri }
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - name: Build
+        run: npx tauri build --bundles nsis
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          B=src-tauri/target/release/bundle/nsis
+          cp "$B"/*-setup.exe artifacts/SSH-OS-Setup-x64.exe
+          # latest.yml lets SSH OS 1.0.x (Electron) self-update to this version
+          node -e '
+            const fs = require("fs"), c = require("crypto");
+            const f = "artifacts/SSH-OS-Setup-x64.exe", b = fs.readFileSync(f);
+            const sha = c.createHash("sha512").update(b).digest("base64");
+            const v = require("./src-tauri/tauri.conf.json").version;
+            fs.writeFileSync("artifacts/latest.yml", `version: ${v}\nfiles:\n  - url: SSH-OS-Setup-x64.exe\n    sha512: ${sha}\n    size: ${b.length}\npath: SSH-OS-Setup-x64.exe\nsha512: ${sha}\nreleaseDate: '"'"'${new Date().toISOString()}'"'"'\n`);
+          '
+          ls -la artifacts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: windows, path: artifacts/*, retention-days: 7 }
+
+  # Publish only after EVERY platform built, so "latest" never points at a release missing files.
   release:
-    needs: build
+    needs: [mac, windows]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          path: artifacts
-          merge-multiple: true
+        with: { path: artifacts, merge-multiple: true }
       - run: ls -la artifacts
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:

@@ -289,7 +289,7 @@ export async function init() {
   const [servers, settings, states] = await Promise.all([api.servers.list(), api.settings.get(), api.conn.states()])
   set({
     servers,
-    settings,
+    settings: { ...DEFAULT_SETTINGS, ...(settings ?? {}) },
     conns: Object.fromEntries(states.map((c) => [c.serverId, c])),
   })
   for (const c of states) if (c.status === 'connected' && c.canExec) scanHost(c.serverId)
@@ -309,7 +309,7 @@ export async function init() {
       })
     }
   })
-  api.on('settings', (s: Settings) => set({ settings: s }))
+  api.on('settings', (s: Settings) => set({ settings: { ...DEFAULT_SETTINGS, ...s } }))
   api.update.state().then((u) => set({ update: u })).catch(() => {})
   api.on('update:state', (u: UpdateState) => {
     const prev = get().update
