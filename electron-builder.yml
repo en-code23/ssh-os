@@ -6,8 +6,11 @@ directories:
 files:
   - out/**
   - package.json
-asarUnpack:
-  - node_modules/cpu-features/**
+  # optional native speed-up for ssh2; not needed and adds a native module
+  - "!node_modules/{cpu-features,nan,buildcheck}/**"
+# Size: ship only English Chromium locales and use the strongest compression
+electronLanguages: [en, en-US, en-GB]
+compression: maximum
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.icns
@@ -19,6 +22,7 @@ mac:
   identity: "-"
 dmg:
   title: SSH OS
+  format: UDBZ
 win:
   icon: build/icon.png
   artifactName: SSH-OS-Setup-${arch}.${ext}
