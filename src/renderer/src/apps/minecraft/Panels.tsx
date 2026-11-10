@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Archive, Download, Globe2, RefreshCw, RotateCcw, Search, Trash2, UserPlus, Upload, ArrowUpCircle, Play } from 'lucide-react'
 import { api, shq } from '../../lib/api'
 import { confirm, prompt, toast } from '../../lib/store'
-import { ctl, describeSchedule, MC_DIR, run } from '../../lib/mc/server'
+import { ctl, describeSchedule, MC_DIR, run, safeFileName } from '../../lib/mc/server'
 import { javaFor, listVersions, mojangUuid, resolveServerJar, SOFTWARE, McVersion } from '../../lib/mc/apis'
 import { parseProps, serializeProps } from '../../lib/mc/properties'
 import { HELP } from '../../lib/mc/help'
@@ -416,7 +416,7 @@ ${full
 tar xzf ${shq(dir + '/' + file)} --exclude=./.sshos`
     : `for w in ${shq(level)} ${shq(level + '_nether')} ${shq(level + '_the_end')}; do [ -d "$w" ] && mv "$w" "$SAVE/"; done
 tar xzf ${shq(dir + '/' + file)}`}
-echo "Restored ${file}. Previous files saved in $SAVE"
+echo ${shq(`Restored ${file}.`)} "Previous files saved in $SAVE"
 ${wasRunning ? 'sh .sshos/ctl.sh start' : ''}`
     await task(`Restoring ${file}`, script)
     reload()
@@ -520,13 +520,14 @@ export function UpdatesTab() {
     if (!ok) return
     try {
       const dl = await resolveServerJar(c.software, target)
+      dl.fileName = safeFileName(dl.fileName, 'server.jar')
       const r = await task(
         `Switching to ${target}`,
         `set -e
 cd ${shq(srv.dir)}
 ${srv.running ? 'sh .sshos/ctl.sh stop 10' : ''}
 sh .sshos/backup.sh worlds
-echo "Downloading ${dl.fileName}…"
+echo ${shq(`Downloading ${dl.fileName}…`)}
 if command -v curl >/dev/null; then curl -fL -o ${shq(dl.fileName)} ${shq(dl.url)}; else wget -O ${shq(dl.fileName)} ${shq(dl.url)}; fi
 mkdir -p .sshos/old-jars; [ ${shq(c.jar)} != ${shq(dl.fileName)} ] && [ -f ${shq(c.jar)} ] && mv ${shq(c.jar)} .sshos/old-jars/ || true
 echo "Done. Start the server to upgrade the world."`,

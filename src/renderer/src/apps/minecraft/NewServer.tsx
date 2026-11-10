@@ -4,7 +4,7 @@ import { api, shq } from '../../lib/api'
 import { toast, useStore } from '../../lib/store'
 import { useMc, scanHost, addExtraDir } from '../../lib/mc/store'
 import { listVersions, resolveServerJar, Software, SOFTWARE, McVersion, javaFor, temurinUrl, mojangUuid } from '../../lib/mc/apis'
-import { defaultConfig, fetchCmd, installJavaScript, listJava, Schedule, writeManagement, ctl, JavaInstall } from '../../lib/mc/server'
+import { defaultConfig, safeFileName, fetchCmd, installJavaScript, listJava, Schedule, writeManagement, ctl, JavaInstall } from '../../lib/mc/server'
 import { PROP_BY_KEY } from '../../lib/mc/properties'
 import { Spinner, Switch } from '../../components/ui'
 import { Row, ScheduleEditor, Section, useTaskRunner } from './common'
@@ -132,14 +132,15 @@ export function NewServer({ hostId: initialHost, onCancel, onCreated }: { hostId
       }
       // 2. Server jar
       const dl = await resolveServerJar(software, version)
+      dl.fileName = safeFileName(dl.fileName, 'server.jar')
       const tool = dl.sha256 ? 'sha256sum' : 'sha1sum'
       const sum = dl.sha256 ?? dl.sha1
-      const check = sum ? `if command -v ${tool} >/dev/null; then echo "${sum}  ${dl.fileName}" | ${tool} -c - || exit 4; fi` : 'true'
+      const check = sum && /^[a-f0-9]{40,64}$/i.test(sum) ? `if command -v ${tool} >/dev/null; then echo ${shq(`${sum}  ${dl.fileName}`)} | ${tool} -c - || exit 4; fi` : 'true'
       const script = `set -e
 D=${shq(dir)}
 if [ -d "$D" ] && [ -n "$(ls -A "$D" 2>/dev/null)" ]; then echo "Folder $D already exists and is not empty"; exit 3; fi
 mkdir -p "$D" && cd "$D"
-echo "Downloading ${SOFTWARE[software].name} ${version} (build ${dl.build})…"
+echo ${shq(`Downloading ${SOFTWARE[software].name} ${version} (build ${dl.build})…`)}
 ${fetchCmd(dl.url, dl.fileName)}
 echo "Verifying checksum…"; ${check}
 mkdir -p plugins

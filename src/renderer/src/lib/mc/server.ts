@@ -375,6 +375,19 @@ def get(url, data=None):
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode())
 
+def safe_name(name):
+    base = os.path.basename(str(name).replace("\\\\", "/"))
+    base = "".join(ch if ch.isalnum() or ch in "._+-" else "_" for ch in base).lstrip(".")
+    if not base:
+        raise Exception("Refusing unsafe file name: %r" % name)
+    return base
+
+def inside(directory, name):
+    dest = os.path.realpath(os.path.join(directory, safe_name(name)))
+    if not dest.startswith(os.path.realpath(directory) + os.sep):
+        raise Exception("Refusing to write outside %s" % directory)
+    return dest
+
 def download(url, dest, sha1=None, sha256=None):
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     tmp = dest + ".part"
@@ -451,7 +464,8 @@ def update_server():
     if DRY:
         return False
     os.makedirs(".sshos/old-jars", exist_ok=True)
-    download(lt["url"], lt["name"], sha1=lt.get("sha1"), sha256=lt.get("sha256"))
+    lt["name"] = safe_name(lt["name"])
+    download(lt["url"], inside(".", lt["name"]), sha1=lt.get("sha1"), sha256=lt.get("sha256"))
     if cfg["jar"] and os.path.exists(cfg["jar"]) and cfg["jar"] != lt["name"]:
         shutil.move(cfg["jar"], os.path.join(".sshos/old-jars", os.path.basename(cfg["jar"])))
         olds = sorted(os.listdir(".sshos/old-jars"), key=lambda f: os.path.getmtime(os.path.join(".sshos/old-jars", f)))
@@ -495,6 +509,7 @@ def update_content():
         f = next((x for x in v["files"] if x.get("primary")), v["files"][0])
         if f["hashes"]["sha1"] == h:
             continue
+        f["filename"] = safe_name(f["filename"])
         entry = {"file": path, "name": os.path.basename(path), "to": f["filename"], "version": v["version_number"], "source": "modrinth"}
         result["content"].append(entry)
         log("Update: %s -> %s (%s)" % (entry["name"], f["filename"], v["version_number"]))
@@ -502,7 +517,7 @@ def update_content():
             continue
         try:
             d = os.path.dirname(path)
-            dest = os.path.join(d, f["filename"])
+            dest = inside(d, f["filename"])
             download(f["url"], dest, sha1=f["hashes"]["sha1"])
             if dest != path:
                 os.makedirs(".sshos/old-content", exist_ok=True)
@@ -524,10 +539,10 @@ def update_content():
                 dl = vs[0]["downloads"].get("PAPER", {})
                 if not dl.get("downloadUrl"):
                     continue
-                result["content"].append({"file": "plugins/" + name, "name": name, "to": dl["fileInfo"]["name"], "version": vs[0]["name"], "source": "hangar"})
+                result["content"].append({"file": "plugins/" + name, "name": name, "to": name, "version": vs[0]["name"], "source": "hangar"})
                 log("Update: %s -> %s" % (name, vs[0]["name"]))
                 if not DRY:
-                    download(dl["downloadUrl"], os.path.join("plugins", name), sha256=(dl.get("fileInfo") or {}).get("sha256Hash"))
+                    download(dl["downloadUrl"], inside("plugins", name), sha256=(dl.get("fileInfo") or {}).get("sha256Hash"))
                     rec["versionId"] = str(vs[0]["id"]); changed = True
             elif rec.get("source") == "spigot":
                 v = get("https://api.spiget.org/v2/resources/%s/versions/latest" % rec["projectId"])
@@ -536,7 +551,7 @@ def update_content():
                 result["content"].append({"file": "plugins/" + name, "name": name, "to": name, "version": v["name"], "source": "spigot"})
                 log("Update: %s -> %s" % (name, v["name"]))
                 if not DRY:
-                    download("https://api.spiget.org/v2/resources/%s/download" % rec["projectId"], os.path.join("plugins", name))
+                    download("https://api.spiget.org/v2/resources/%s/download" % rec["projectId"], inside("plugins", name))
                     rec["versionId"] = str(v["id"]); changed = True
         except Exception as e:
             log("Could not check", name, "-", e)
@@ -727,6 +742,12 @@ tar xzf "$DEST.tmp/jre.tar.gz" -C "$DEST.tmp" --strip-components=1
 rm -f "$DEST.tmp/jre.tar.gz"; rm -rf "$DEST"; mv "$DEST.tmp" "$DEST"
 "$DEST/bin/java" -version
 echo "JAVA_PATH=$DEST/bin/java"`
+}
+
+/** Make a remote-supplied file name safe: no paths, no shell metacharacters. */
+export function safeFileName(name: string, fallback = 'download.jar') {
+  const base = (name.split(/[\\/]/).pop() ?? '').replace(/[^\w.+-]/g, '_').replace(/^\.+/, '')
+  return base && base !== '.' && base !== '..' ? base.slice(0, 120) : fallback
 }
 
 /** shell snippet that downloads url to file using curl or wget */

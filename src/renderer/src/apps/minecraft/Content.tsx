@@ -5,7 +5,7 @@ import { confirm, toast } from '../../lib/store'
 import {
   ContentHit, ContentKind, ContentSource, ContentVersion, fmtNum, listContentVersions, modrinthProject, resolveExternal, searchContent, SOFTWARE,
 } from '../../lib/mc/apis'
-import { fetchCmd, MC_DIR, run } from '../../lib/mc/server'
+import { fetchCmd, MC_DIR, run, safeFileName } from '../../lib/mc/server'
 import { parseProps, serializeProps } from '../../lib/mc/properties'
 import { formatBytes } from '../../lib/files'
 import { Segmented, Spinner, Switch } from '../../components/ui'
@@ -161,8 +161,9 @@ else echo NOPY; fi`, 60000)
   }
 
   const applyUpdate = async (list: Installed[]) => {
+    for (const i of list) i.update!.fileName = safeFileName(i.update!.fileName)
     const script = list
-      .map((i) => `cd ${shq(srv.dir + '/' + i.dir)} && echo "Updating ${i.file} → ${i.update!.fileName}" && ${fetchCmd(i.update!.url, i.update!.fileName + '.part')} && mv -f ${shq(i.update!.fileName + '.part')} ${shq(i.update!.fileName)} && { [ ${shq(i.file)} = ${shq(i.update!.fileName)} ] || { mkdir -p ${shq(srv.dir + '/' + MC_DIR + '/old-content')} && mv -f ${shq(i.file)} ${shq(srv.dir + '/' + MC_DIR + '/old-content/')}; }; }`)
+      .map((i) => `cd ${shq(srv.dir + '/' + i.dir)} && echo ${shq(`Updating ${i.file} → ${i.update!.fileName}`)} && ${fetchCmd(i.update!.url, i.update!.fileName + '.part')} && mv -f ${shq(i.update!.fileName + '.part')} ${shq(i.update!.fileName)} && { [ ${shq(i.file)} = ${shq(i.update!.fileName)} ] || { mkdir -p ${shq(srv.dir + '/' + MC_DIR + '/old-content')} && mv -f ${shq(i.file)} ${shq(srv.dir + '/' + MC_DIR + '/old-content/')}; }; }`)
       .join(' && ')
     const r = await task(`Updating ${list.length} item${list.length > 1 ? 's' : ''}`, script + ' && echo "Restart the server to load the new versions."')
     if (r.code === 0 && srv.managed) {
@@ -339,7 +340,7 @@ function BrowseView() {
       toast({ title: 'No downloadable file for this version', kind: 'error' })
       return false
     }
-    fileName = fileName.replace(/[/\\]/g, '_')
+    fileName = safeFileName(fileName, `${hit.slug.replace(/[^\w-]/g, '')}.jar`)
 
     if (hit.kind === 'resourcepack') {
       const path = `${srv.dir}/server.properties`
@@ -350,10 +351,11 @@ function BrowseView() {
     }
 
     const dest = destFor(hit.kind, srv.levelName)
-    const verify = v.sha1 ? ` && if command -v sha1sum >/dev/null; then echo "${v.sha1}  ${fileName}.part" | sha1sum -c - >/dev/null || { echo "Checksum mismatch"; rm -f ${shq(fileName + '.part')}; exit 4; }; fi` : ''
+    const sha1 = /^[a-f0-9]{40}$/i.test(v.sha1 ?? '') ? v.sha1 : undefined
+    const verify = sha1 ? ` && if command -v sha1sum >/dev/null; then echo ${shq(`${sha1}  ${fileName}.part`)} | sha1sum -c - >/dev/null || { echo "Checksum mismatch"; rm -f ${shq(fileName + '.part')}; exit 4; }; fi` : ''
     const r = await task(
       `Installing ${hit.title} ${v.version}`,
-      `mkdir -p ${shq(srv.dir + '/' + dest)} && cd ${shq(srv.dir + '/' + dest)} && echo "Downloading ${fileName}…" && ${fetchCmd(url, fileName + '.part')}${verify} && mv -f ${shq(fileName + '.part')} ${shq(fileName)} && echo "Installed into ${dest}/${fileName}" && echo "${hit.kind === 'datapack' ? 'Run /reload in the console or restart to enable it.' : 'Restart the server to load it.'}"`,
+      `mkdir -p ${shq(srv.dir + '/' + dest)} && cd ${shq(srv.dir + '/' + dest)} && echo ${shq(`Downloading ${fileName}…`)} && ${fetchCmd(url, fileName + '.part')}${verify} && mv -f ${shq(fileName + '.part')} ${shq(fileName)} && echo ${shq(`Installed into ${dest}/${fileName}`)} && echo ${shq(hit.kind === 'datapack' ? 'Run /reload in the console or restart to enable it.' : 'Restart the server to load it.')}`,
       { quiet: !withDeps },
     )
     if (r.code !== 0) return false
