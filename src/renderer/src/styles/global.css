@@ -167,27 +167,45 @@ input, textarea, [contenteditable] { user-select: text; }
 .dock-wrap { position: absolute; left: 0; right: 0; bottom: 6px; display: flex; justify-content: center; z-index: 90000; pointer-events: none; }
 .dock {
   pointer-events: auto;
-  display: flex; align-items: flex-end; gap: 4px; padding: 5px 7px;
+  display: flex; align-items: flex-end; gap: 4px; padding: 0 7px 7px;
   background: var(--dock-bg);
   backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8);
   border-radius: 20px;
   box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.35), 0 0 0 0.5px rgba(0,0,0,.25), 0 10px 30px rgba(0,0,0,.25);
+  overflow: visible;
 }
-.dock-item { position: relative; display: flex; flex-direction: column; align-items: center; transition: width .12s ease, height .12s ease; }
-.dock-item .app-icon { transition: transform .15s ease; }
-.dock-item:active .app-icon { filter: brightness(.75); }
-.dock-item .dot { position: absolute; bottom: -4px; width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,.85); }
+/* width is driven by the magnification loop; no CSS transitions so it never lags behind the cursor */
+.dock-item { position: relative; flex: 0 0 auto; height: var(--base); display: flex; justify-content: center; -webkit-tap-highlight-color: transparent; }
+.dock-lift { position: absolute; inset: 0; display: flex; justify-content: center; align-items: flex-end; pointer-events: none; }
+/* icons are rendered at full zoom size and scaled down, so they stay crisp when enlarged */
+.dock-icon {
+  flex-shrink: 0; width: calc(var(--base) * var(--max)); height: calc(var(--base) * var(--max));
+  transform-origin: 50% 100%; transform: scale(calc(var(--s, 1) / var(--max)));
+  pointer-events: auto; backface-visibility: hidden;
+}
+.dock-icon .app-icon { transition: filter .12s ease; }
+.dock-item:active .dock-icon .app-icon { filter: brightness(.72); }
+.dock-item .dot { position: absolute; bottom: -5px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: rgba(255,255,255,.85); opacity: 0; transition: opacity .25s ease; pointer-events: none; }
+.dock-item .dot.on { opacity: 1; }
 :root:not(.dark) .dock-item .dot { background: rgba(0,0,0,.65); }
 .dock-item .tip {
-  position: absolute; bottom: calc(100% + 12px); padding: 4px 10px; border-radius: 6px; white-space: nowrap;
+  position: absolute; left: 50%; bottom: calc(var(--base) * var(--s, 1) + 14px); transform: translateX(-50%);
+  padding: 4px 10px; border-radius: 7px; white-space: nowrap;
   background: var(--menu-bg); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); color: var(--text); font-size: 13px;
   box-shadow: 0 0 0 0.5px var(--border-strong), 0 4px 14px rgba(0,0,0,.2);
-  opacity: 0; transform: translateY(4px); transition: all .12s; pointer-events: none;
+  opacity: 0; transition: opacity .12s ease; pointer-events: none; z-index: 2;
 }
-.dock-item:hover .tip { opacity: 1; transform: none; }
-.dock-sep { width: 1px; align-self: stretch; margin: 6px 4px; background: rgba(255,255,255,.3); }
-.dock-item.bounce .app-icon { animation: bounce .6s ease 2; }
-@keyframes bounce { 0%,100% { transform: translateY(0); } 40% { transform: translateY(-18px); } }
+.dock-item:hover .tip { opacity: 1; transition-delay: .05s; }
+.dock:has(.menu) .tip { opacity: 0 !important; }
+.dock-sep { width: 1px; align-self: stretch; margin: 8px 4px 2px; background: rgba(255,255,255,.3); flex: 0 0 auto; }
+:root:not(.dark) .dock-sep { background: rgba(0,0,0,.18); }
+.dock-lift.bounce { animation: dock-bounce .62s 2; }
+@keyframes dock-bounce {
+  0% { transform: translateY(0); animation-timing-function: cubic-bezier(.2,.7,.35,1); }
+  45% { transform: translateY(-26px); animation-timing-function: cubic-bezier(.65,0,.8,.35); }
+  100% { transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) { .dock-lift.bounce { animation: none; } }
 
 .app-icon {
   position: relative; display: flex; align-items: center; justify-content: center;

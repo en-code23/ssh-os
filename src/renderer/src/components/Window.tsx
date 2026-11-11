@@ -55,7 +55,7 @@ export const Window = memo(function Window({ win }: { win: Win }) {
 
   const g = geom ?? win
   const style = win.maximized
-    ? { left: 0, top: 28, width: '100%', height: `calc(100% - 28px - ${dockSize + 18}px)`, zIndex: win.z, borderRadius: 0 }
+    ? { left: 0, top: 28, width: '100%', height: `calc(100% - 28px - ${dockSize + 24}px)`, zIndex: win.z, borderRadius: 0 }
     : { left: g.x, top: g.y, width: g.w, height: g.h, zIndex: win.z }
 
   const startDrag = (e: React.MouseEvent) => {
