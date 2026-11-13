@@ -46,7 +46,11 @@ npm run build        # release app + installers in src-tauri/target/release/bund
 
 When SSH OS finds a Minecraft Java server on a connected machine, a **Minecraft Servers** app appears in the Dock. It looks for any `server.properties` up to 4 levels deep under `~`, `/opt`, `/srv`, `/home`, `/var/games`, `/mnt` and `/data`. You can set it to always show in System Settings → Desktop & Dock.
 
-- **Create servers:** a wizard sets up Paper (recommended), Purpur, Folia, Fabric or Vanilla for any version. It downloads Java (Eclipse Temurin, no sudo) when needed and verifies checksums. It also sets memory, gameplay and access settings, an initial operator, and asks you to accept the EULA.
+- **Create servers:** a wizard sets up Paper (recommended), Purpur, Folia, Fabric or Vanilla. The newest Minecraft version is selected automatically. It downloads Java (Eclipse Temurin, no sudo) when needed and verifies checksums. It also asks you to accept the EULA.
+- **Sized for your players:** pick how many players you expect (1–5 up to 51–100). SSH OS sets memory, view and simulation distance and the player limit for that number on your machine, and warns when the machine is too small.
+- **Duplicate servers:** copy a server (with or without its worlds) to a new folder with its own port, schedules and identity. Running servers pause saving briefly so the copy is consistent.
+- **Compatibility:** every installed plugin, mod, data pack and resource pack is checked against the server's Minecraft version and software (Modrinth data, `plugin.yml` api-version, Fabric version ranges). Incompatible ones are flagged with the reason, and search results show whether they support your version.
+- **Plugin updates and configs:** updates are checked automatically when you open Content ("Update All"), and each plugin's config files open in the Code Editor from the gear button.
 - **Manage servers:**
   - Start, stop and restart, with a warning countdown, in a tmux/screen session (or in the background).
   - Restart on crash, start on boot, and scheduled restarts.
@@ -62,6 +66,23 @@ When SSH OS finds a Minecraft Java server on a connected machine, a **Minecraft 
 - **Delete a server:** you must type the server name to confirm. It stops the server, removes its cron jobs and deletes the folder.
 
 Everything SSH OS adds lives in `<server>/.sshos/`. The scripts are plain `sh` and `python3`, so you can also run them yourself, e.g. `sh .sshos/ctl.sh restart`.
+
+## Terraria Servers app
+
+Appears in the Dock when a Terraria server is found on a connected machine (or always/never, under System Settings → Desktop & Dock).
+
+- **TShock** (recommended; x86_64 and ARM), **tModLoader** and the **official server** (x86_64). The newest release is installed and verified, and TShock's .NET runtime is installed into `~/.sshos/dotnet` without sudo.
+- **Sized for your players:** player presets set the player limit, world size and network settings, with memory warnings.
+- Start, stop and restart in the background, a live console, crash restarts, start on boot, scheduled restarts and backups, duplicating servers, and updates of the server software.
+- **Worlds:** switch, create (size, difficulty, seed), upload and download.
+- **Settings:** every `serverconfig.txt` key has a typed editor and help, plus TShock's config files.
+- **TShock plugins:** search GitHub (`tshock-plugin`), install from releases, update, and edit plugin config. Plugins built for an older TShock are flagged.
+- **tModLoader mods:** search the Steam Workshop, then install, update and enable or disable mods (via SteamCMD, installed automatically; x86_64 only). Mods not made for the current tModLoader are flagged.
+- On first start, the overview shows the TShock admin setup code.
+
+## Codex
+
+The Codex app installs OpenAI's Codex CLI on any SSH server (`~/.local/bin`, no sudo, checksum-verified) and keeps it updated. You can sign in with ChatGPT (device code) or an API key. Then open Codex in any folder in a Terminal tab, choosing how much it may do on its own. In Finder, folders have an "Open Codex Here" item.
 
 ## Download
 

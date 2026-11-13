@@ -121,6 +121,7 @@ export async function detectDirs(hostId: string): Promise<string[]> {
 
 const INSPECT = (dirs: string[]) => `
 for d in ${dirs.map(shq).join(' ')}; do
+  [ -d "$d" ] || continue  # folder removed outside SSH OS
   echo "@@DIR $d"
   ls -1 "$d" 2>/dev/null | head -200
   echo "@@CFG"; cat "$d/${MC_DIR}/mc.json" 2>/dev/null

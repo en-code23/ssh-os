@@ -115,7 +115,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
-            let dir = app.path().app_data_dir()?;
+            #[allow(unused_mut)]
+            let mut dir = app.path().app_data_dir()?;
+            // Debug builds only: isolated data folder for automated tests (never the user's real data)
+            #[cfg(debug_assertions)]
+            if let Ok(p) = std::env::var("SSHOS_TEST_PROFILE") {
+                dir = std::path::PathBuf::from(p);
+            }
             let store = Arc::new(store::Store::load(dir));
             let handle = app.handle().clone();
             let http = reqwest::Client::builder()

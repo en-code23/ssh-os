@@ -1,5 +1,5 @@
 import {
-  Activity, Code2, Pickaxe, Eye, Info, Network, ScrollText, Server, Settings as Gear, Smile, SquareTerminal, Zap, Box,
+  Activity, Code2, Pickaxe, Bot, TreePine, Eye, Info, Network, ScrollText, Server, Settings as Gear, Smile, SquareTerminal, Zap, Box,
   type LucideIcon,
 } from 'lucide-react'
 import type { AppId } from '../lib/store'
@@ -31,7 +31,9 @@ export const APPS: Record<AppId, AppMeta> = {
   about: { id: 'about', name: 'About SSH OS', icon: Box, bg: 'linear-gradient(135deg,#0a84ff,#5e5ce6)' },
   quicklook: { id: 'quicklook', name: 'Quick Look', icon: Eye, bg: 'linear-gradient(180deg,#8e8e93,#48484a)' },
   minecraft: { id: 'minecraft', name: 'Minecraft Servers', icon: Pickaxe, bg: 'linear-gradient(180deg,#7cc34a 0%,#5a9a2e 45%,#8b5a2b 46%,#6b4423 100%)', needsServer: false, unified: true },
+  terraria: { id: 'terraria', name: 'Terraria Servers', icon: TreePine, bg: 'linear-gradient(180deg,#5fb3ff 0%,#3d8be0 42%,#4caf50 43%,#2e7d32 62%,#7b5232 63%,#5d3d24 100%)', unified: true },
+  codex: { id: 'codex', name: 'Codex', icon: Bot, bg: 'linear-gradient(135deg,#2b2b2e,#000)', unified: true, inDock: true },
   info: { id: 'info', name: 'Get Info', icon: Info, bg: 'linear-gradient(180deg,#8e8e93,#48484a)' },
 }
 
-export const DOCK_ORDER: AppId[] = ['finder', 'terminal', 'servers', 'editor', 'monitor', 'console', 'network', 'shortcuts', 'settings']
+export const DOCK_ORDER: AppId[] = ['finder', 'terminal', 'servers', 'editor', 'codex', 'monitor', 'console', 'network', 'shortcuts', 'settings']

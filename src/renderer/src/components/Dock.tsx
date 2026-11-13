@@ -5,6 +5,7 @@ import { activateApp, launch } from '../apps/launch'
 import { AppIcon, useMenu } from './ui'
 import type { AppId } from '../lib/store'
 import { anyMinecraft, useMc } from '../lib/mc/store'
+import { anyTerraria, useTr } from '../lib/tr/store'
 
 /** Largest zoom factor of the icon under the cursor. */
 const MAX_SCALE = 1.7
@@ -30,12 +31,15 @@ export function Dock() {
   const servers = useStore((s) => s.servers)
   const showMc = useStore((s) => s.settings.showMinecraft)
   const mcFound = useMc((s) => anyMinecraft(s))
+  const showTr = useStore((s) => s.settings.showTerraria)
+  const trFound = useTr((s) => anyTerraria(s))
   const menu = useMenu()
   const [bouncing, setBouncing] = useState<Set<string>>(new Set())
 
   const running = new Set(windows.map((w) => w.app))
   const base: AppId[] = [...DOCK_ORDER]
   if (showMc === 'always' || (showMc !== 'never' && mcFound)) base.splice(base.indexOf('shortcuts'), 0, 'minecraft')
+  if (showTr === 'always' || (showTr !== 'never' && trFound)) base.splice(base.indexOf('shortcuts'), 0, 'terraria')
   const extra = [...running].filter((a) => !base.includes(a)) as AppId[]
   const items = [...base, ...(extra.length ? ['sep' as const, ...extra] : [])]
   const layoutKey = items.join('|') + ':' + size

@@ -13,6 +13,8 @@ import { About } from './About'
 import { QuickLook } from './QuickLook'
 import { GetInfo } from './GetInfo'
 import { Minecraft } from './minecraft/Minecraft'
+import { Terraria } from './terraria/Terraria'
+import { Codex } from './Codex'
 
 export const COMPONENTS: Record<AppId, ComponentType<{ win: Win }>> = {
   finder: Finder,
@@ -28,4 +30,6 @@ export const COMPONENTS: Record<AppId, ComponentType<{ win: Win }>> = {
   quicklook: QuickLook,
   info: GetInfo,
   minecraft: Minecraft,
+  terraria: Terraria,
+  codex: Codex,
 }

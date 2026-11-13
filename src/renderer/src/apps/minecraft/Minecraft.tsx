@@ -6,7 +6,9 @@ import {
 import { api, shq } from '../../lib/api'
 import { confirm, ensureConnected, prompt, toast, updateWindow, useStore, Win } from '../../lib/store'
 import { useMc, scanHost, refreshDirs, addExtraDir, removeExtraDir } from '../../lib/mc/store'
-import { ctl, describeSchedule, MC_DIR, McConfig, McServer, removeCron, run, saveConfig, SLP_PY, writeManagement } from '../../lib/mc/server'
+import { ctl, defaultConfig, describeSchedule, MC_DIR, McConfig, McServer, removeCron, run, saveConfig, SLP_PY, writeManagement } from '../../lib/mc/server'
+import { serializeProps } from '../../lib/mc/properties'
+import { DuplicateSheet, duplicateScript, type DuplicateOptions } from './Duplicate'
 import { SOFTWARE } from '../../lib/mc/apis'
 import { Toolbar } from '../../components/Window'
 import { Spinner, useMenu } from '../../components/ui'
@@ -152,7 +154,7 @@ export function Minecraft({ win }: { win: Win }) {
               }}
             />
           ) : current && host ? (
-            <ServerView key={current.hostId + current.dir} srv={current} hostName={host.name} tab={tab} setTab={setTab} onDeleted={() => setSel(null)} />
+            <ServerView key={current.hostId + current.dir} srv={current} hostName={host.name} tab={tab} setTab={setTab} onDeleted={() => setSel(null)} onSelect={(dir) => { setSel({ hostId: current.hostId, dir }); setTab('Overview') }} />
           ) : (
             <div className="empty">
               <Pickaxe size={44} strokeWidth={1.3} />
@@ -188,11 +190,15 @@ export function McIcon({ software, size = 28 }: { software: string; size?: numbe
 
 // ---------------------------------------------------------------------------
 
-function ServerView({ srv, hostName, tab, setTab, onDeleted }: { srv: McServer; hostName: string; tab: Tab; setTab: (t: Tab) => void; onDeleted: () => void }) {
+const NONE: McServer[] = []
+
+function ServerView({ srv, hostName, tab, setTab, onDeleted, onSelect }: { srv: McServer; hostName: string; tab: Tab; setTab: (t: Tab) => void; onDeleted: () => void; onSelect: (dir: string) => void }) {
   const host = useStore((s) => s.servers.find((x) => x.id === srv.hostId))!
   const runner = useTaskRunner(srv.hostId)
   const menu = useMenu()
   const [busy, setBusy] = useState('')
+  const [dup, setDup] = useState(false)
+  const hostServers = useMc((s) => s.servers[srv.hostId] ?? NONE)
   const c = srv.config
 
   const reload = async () => {
@@ -283,6 +289,42 @@ function ServerView({ srv, hostName, tab, setTab, onDeleted }: { srv: McServer; 
     }
   }
 
+  const duplicate = async (o: DuplicateOptions) => {
+    setDup(false)
+    const live = srv.running && srv.managed && !srv.external
+    const ctlPath = `${shq(srv.dir)}/.sshos/ctl.sh`
+    const level = srv.levelName
+    const excludes = [
+      'logs', 'cache', 'crash-reports', '.sshos/server.pid', '.sshos/mux', '.sshos/stdin', '.sshos/stop-requested', '.sshos/console.log', '.sshos/console.prev.log',
+      '.sshos/old-jars', '.sshos/old-content', '.sshos/update.log', '.sshos/backup.log', 'session.lock', '*/session.lock',
+      ...(o.includeBackups ? [] : [srv.config.backups.dir && !srv.config.backups.dir.startsWith('/') ? srv.config.backups.dir : 'backups']),
+      ...(o.includeWorlds ? [] : [level, `${level}_nether`, `${level}_the_end`]),
+    ]
+    const r = await runner.run(
+      `Duplicating ${c.name}`,
+      duplicateScript(srv.dir, o.dir, excludes, live ? `sh ${ctlPath} cmd "save-off" >/dev/null; sh ${ctlPath} cmd "save-all flush" >/dev/null; sleep 6` : '', live ? `sh ${ctlPath} cmd "save-on" >/dev/null` : ''),
+    )
+    if (r.code !== 0) return
+    try {
+      // own port, identity, session and schedules for the copy
+      const propsPath = `${o.dir}/server.properties`
+      const t = await api.fs.readText(srv.hostId, propsPath).catch(() => '')
+      await api.fs.writeText(srv.hostId, propsPath, serializeProps(t, { 'server-port': String(o.port), ...(o.includeWorlds ? {} : { 'level-seed': '' }) }))
+      if (srv.managed) {
+        const old = JSON.parse(await api.fs.readText(srv.hostId, `${o.dir}/${MC_DIR}/mc.json`))
+        const fresh = defaultConfig({ name: o.name, software: old.software, mcVersion: old.mcVersion, jar: old.jar })
+        await writeManagement(srv.hostId, o.dir, { ...old, id: fresh.id, name: o.name, session: fresh.session, createdAt: Date.now() })
+        if (o.startAfter) await ctl(srv.hostId, o.dir, 'start')
+      }
+      addExtraDir(srv.hostId, o.dir)
+      await scanHost(srv.hostId)
+      toast({ title: `Created “${o.name}”`, body: `${o.dir} · port ${o.port}`, kind: 'success' })
+      onSelect(o.dir)
+    } catch (e: any) {
+      toast({ title: 'Copy made, but setup failed', body: e.message, kind: 'error' })
+    }
+  }
+
   const attach = () => {
     const cmd = `cd ${shq(srv.dir)} && (tmux attach -t ${shq(c.session)} 2>/dev/null || screen -r ${shq(c.session)} 2>/dev/null || tail -f .sshos/console.log)`
     launch('terminal', { serverId: srv.hostId, forceNew: true, props: { command: cmd } })
@@ -332,6 +374,7 @@ function ServerView({ srv, hostName, tab, setTab, onDeleted }: { srv: McServer; 
               { label: 'Force Kill', danger: true, disabled: !srv.running, onClick: () => action('kill') },
               { label: srv.managed ? 'Reinstall Helper Scripts' : 'Set Up Management', onClick: setup },
               { separator: true },
+              { label: 'Duplicate Server…', icon: <Copy size={14} />, onClick: () => setDup(true) },
               { label: 'Delete Server…', danger: true, onClick: deleteServer },
             ])
           }
@@ -371,6 +414,19 @@ function ServerView({ srv, hostName, tab, setTab, onDeleted }: { srv: McServer; 
         {tab === 'Help' && <HelpTab />}
       </div>
       {runner.el}
+      {dup && (
+        <DuplicateSheet
+          hostId={srv.hostId}
+          srcName={c.name}
+          srcDir={srv.dir}
+          usedPorts={hostServers.map((s) => s.port)}
+          defaultPort={srv.port}
+          worldsLabel="worlds"
+          running={srv.running}
+          onCancel={() => setDup(false)}
+          onConfirm={duplicate}
+        />
+      )}
       {menu.el}
     </Ctx.Provider>
   )
@@ -393,7 +449,7 @@ export function useLive(srv: McServer, withDisk = false) {
     let stop = false
     const tick = async () => {
       const script = `hostname -I 2>/dev/null | tr ' ' '\\n' | grep -v ':' | head -3; echo '@@'
-${srv.pid ? `ps -o rss=,pcpu=,etime= -p ${srv.pid} 2>/dev/null` : ''}; echo '@@'
+${srv.pid ? `ps -o rss=,pcpu=,etime= -p ${srv.pid} 2>/dev/null` : 'true'}; echo '@@'
 ${srv.running ? SLP_PY(srv.port) : 'echo "{}"'}
 echo '@@'
 ${withDisk ? `timeout 8 du -sh ${shq(srv.dir)} 2>/dev/null | cut -f1` : ''}`
@@ -517,7 +573,7 @@ function Overview() {
 
 // ---------------------------------------------------------------------------
 
-function ConsoleTab() {
+export function ConsoleTab({ hint = 'Type a server command, e.g. op Steve, gamerule keepInventory true — ↑ for history' }: { hint?: string } = {}) {
   const { srv } = useCtx()
   const [lines, setLines] = useState<string[]>([])
   const [cmd, setCmd] = useState('')
@@ -592,7 +648,7 @@ function ConsoleTab() {
         <span className="mono muted">/</span>
         <input
           className="input mono grow"
-          placeholder={canCmd ? 'Type a server command, e.g. op Steve, gamerule keepInventory true — ↑ for history' : srv.external ? 'Started outside SSH OS — commands unavailable' : 'Start the server to send commands'}
+          placeholder={canCmd ? hint : srv.external ? 'Started outside SSH OS — commands unavailable' : 'Start the server to send commands'}
           disabled={!canCmd}
           value={cmd}
           onChange={(e) => setCmd(e.target.value)}

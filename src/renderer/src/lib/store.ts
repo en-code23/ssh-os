@@ -3,6 +3,7 @@ import type { ConnectionState, ServerConfig, Settings, Transfer } from '../../..
 import { DEFAULT_SETTINGS } from '../../../shared/types'
 import { api, Item, uid, UpdateState } from './api'
 import { forgetHost, scanHost } from './mc/store'
+import { forgetTrHost, scanTrHost } from './tr/store'
 
 export type AppId =
   | 'finder'
@@ -18,6 +19,8 @@ export type AppId =
   | 'quicklook'
   | 'info'
   | 'minecraft'
+  | 'terraria'
+  | 'codex'
 
 export interface Win {
   id: string
@@ -103,6 +106,8 @@ const DEFAULT_SIZES: Partial<Record<AppId, [number, number]>> = {
   quicklook: [720, 540],
   info: [320, 520],
   minecraft: [1180, 740],
+  terraria: [1180, 740],
+  codex: [820, 660],
 }
 
 const SINGLETONS: AppId[] = ['servers', 'settings', 'about', 'shortcuts']
@@ -292,15 +297,15 @@ export async function init() {
     settings: { ...DEFAULT_SETTINGS, ...(settings ?? {}) },
     conns: Object.fromEntries(states.map((c) => [c.serverId, c])),
   })
-  for (const c of states) if (c.status === 'connected' && c.canExec) scanHost(c.serverId)
+  for (const c of states) if (c.status === 'connected' && c.canExec) { scanHost(c.serverId); scanTrHost(c.serverId) }
   api.on('conn:state', (st: ConnectionState) => {
     const prev = get().conns[st.serverId]
     set((s) => ({ conns: { ...s.conns, [st.serverId]: st } }))
     if (st.status === 'connected' && prev?.status !== 'connected') {
       refreshServers()
-      if (st.canExec) scanHost(st.serverId)
+      if (st.canExec) { scanHost(st.serverId); scanTrHost(st.serverId) }
     }
-    if (st.status !== 'connected' && prev?.status === 'connected') forgetHost(st.serverId)
+    if (st.status !== 'connected' && prev?.status === 'connected') { forgetHost(st.serverId); forgetTrHost(st.serverId) }
     if (st.error === 'Connection lost' && prev?.status === 'connected') {
       toast({
         title: `Lost connection to ${serverName(st.serverId)}`,

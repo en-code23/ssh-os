@@ -29,6 +29,8 @@ fn s(args: &[Value], i: usize) -> String {
 const API_HOSTS: &[&str] = &[
     "api.modrinth.com", "hangar.papermc.io", "api.spiget.org", "fill.papermc.io", "api.purpurmc.org",
     "meta.fabricmc.net", "piston-meta.mojang.com", "launchermeta.mojang.com", "api.mojang.com", "api.github.com", "api.adoptium.net",
+    // Terraria: official server downloads, Steam Workshop (tModLoader mods)
+    "terraria.org", "api.steampowered.com", "steamcommunity.com",
 ];
 
 pub fn apply_theme(app: &AppHandle, appearance: &str) {
@@ -291,8 +293,12 @@ async fn dispatch(app: &AppHandle, st: &AppState, ch: &str, a: &[Value]) -> Resu
             }
             let o = a.get(1).cloned().unwrap_or(Value::Null);
             let mut req = if o["method"] == "POST" { st.http.post(u.clone()) } else { st.http.get(u.clone()) };
-            req = req.header("Accept", "application/json");
-            if !o["body"].is_null() {
+            req = req.header("Accept", if o["text"].as_bool().unwrap_or(false) { "text/html,*/*" } else { "application/json" });
+            if let Some(form) = o["form"].as_object() {
+                // application/x-www-form-urlencoded (Steam Web API)
+                let pairs: Vec<(String, String)> = form.iter().map(|(k, v)| (k.clone(), v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))).collect();
+                req = req.form(&pairs);
+            } else if !o["body"].is_null() {
                 req = req.json(&o["body"]);
             }
             let res = req.send().await?;
@@ -302,11 +308,18 @@ async fn dispatch(app: &AppHandle, st: &AppState, ch: &str, a: &[Value]) -> Resu
             if !res.status().is_success() {
                 bail!("{} responded {}", u.host_str().unwrap_or(""), res.status().as_u16());
             }
-            res.json::<Value>().await?
+            if o["text"].as_bool().unwrap_or(false) {
+                // capped so a huge page can't exhaust memory
+                let body = res.text().await?;
+                json!(body.chars().take(3_000_000).collect::<String>())
+            } else {
+                res.json::<Value>().await?
+            }
         }
         #[cfg(debug_assertions)]
         "debug:log" => {
             println!("[selftest] {}", a.iter().map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string())).collect::<Vec<_>>().join(" "));
+            let _ = std::io::Write::flush(&mut std::io::stdout());
             Value::Null
         }
         #[cfg(debug_assertions)]

@@ -102,6 +102,18 @@ export function SettingsApp({ win }: { win: Win }) {
                 ]}
               />
             </div>
+            <div className="group-row">
+              <span>Terraria Servers app in the Dock</span>
+              <Segmented
+                value={s.showTerraria}
+                onChange={(v) => updateSettings({ showTerraria: v })}
+                options={[
+                  { value: 'auto', label: 'When detected' },
+                  { value: 'always', label: 'Always' },
+                  { value: 'never', label: 'Never' },
+                ]}
+              />
+            </div>
           </div>
         )}
         {pane === 'finder' && (

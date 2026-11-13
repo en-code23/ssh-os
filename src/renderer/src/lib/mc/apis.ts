@@ -63,7 +63,41 @@ export interface McVersion {
 const FILL = 'https://fill.papermc.io/v3/projects'
 const isStable = (v: string) => !/(-|snapshot|pre|rc|w\d)/i.test(v)
 
+/** Compare Minecraft versions ("1.21.4", "26.3", "1.21.11-rc1"); returns >0 if a is newer. */
+export function compareMcVersions(a: string, b: string): number {
+  const parse = (v: string) => {
+    const [main, pre = ''] = v.split('-', 2)
+    return { nums: main.split('.').map((x) => parseInt(x) || 0), pre }
+  }
+  const x = parse(a)
+  const y = parse(b)
+  for (let i = 0; i < Math.max(x.nums.length, y.nums.length); i++) {
+    const d = (x.nums[i] ?? 0) - (y.nums[i] ?? 0)
+    if (d) return d
+  }
+  // a release is newer than its pre-releases/release candidates
+  if (!x.pre && y.pre) return 1
+  if (x.pre && !y.pre) return -1
+  return x.pre.localeCompare(y.pre, undefined, { numeric: true })
+}
+
+/** Newest version first, regardless of the order an API returns them in. */
+function newestFirst(list: McVersion[]): McVersion[] {
+  const isSnapshotId = (v: string) => /^\d{2}w\d{2}[a-z]$/i.test(v) // e.g. 24w14a: can't be ordered numerically
+  const ordered = list.filter((v) => !isSnapshotId(v.id)).sort((p, q) => compareMcVersions(q.id, p.id))
+  return [...ordered, ...list.filter((v) => isSnapshotId(v.id))]
+}
+
+/** The newest stable version, e.g. for a new server's default. */
+export function latestStable(list: McVersion[]): McVersion | undefined {
+  return list.find((v) => v.stable)
+}
+
 export async function listVersions(sw: Software): Promise<McVersion[]> {
+  return newestFirst(await listVersionsRaw(sw))
+}
+
+async function listVersionsRaw(sw: Software): Promise<McVersion[]> {
   switch (sw) {
     case 'paper':
     case 'folia': {
@@ -198,6 +232,10 @@ export interface ContentHit {
   categories?: string[]
   /** Spigot/Hangar entries that are hosted elsewhere */
   external?: boolean
+  /** Minecraft versions the project supports (Modrinth: all versions of the project; Spigot: tested versions) */
+  gameVersions?: string[]
+  /** Spigot reports tested versions as major.minor */
+  tested?: boolean
 }
 
 export interface ContentVersion {
@@ -237,6 +275,7 @@ export async function searchContent(
       hits: (r.hits as any[]).map((h) => ({
         source, id: h.project_id, slug: h.slug, title: h.title, author: h.author, description: h.description, icon: h.icon_url || undefined,
         downloads: h.downloads, updated: h.date_modified, kind, url: `https://modrinth.com/${h.project_type}/${h.slug}`, categories: h.display_categories,
+        gameVersions: h.versions,
       })),
     }
   }
@@ -268,6 +307,7 @@ export async function searchContent(
       icon: p.icon?.data ? `data:image/png;base64,${p.icon.data}` : undefined,
       updated: p.updateDate ? new Date(p.updateDate * 1000).toISOString() : undefined, kind: 'plugin', external: !!p.external,
       url: `https://www.spigotmc.org/resources/${p.id}/`, categories: p.testedVersions?.slice(-3),
+      gameVersions: p.testedVersions, tested: true,
     })),
   }
 }

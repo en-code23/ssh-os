@@ -414,7 +414,7 @@ SAVE=.sshos/pre-restore-${stamp}; mkdir -p "$SAVE"
 ${full
     ? `for f in * .[!.]*; do case "$f" in .sshos|${shq((srv.config.backups.dir || 'backups').split('/')[0])}|'*'|'.[!.]*') continue;; esac; [ -e "$f" ] && mv "$f" "$SAVE/"; done
 tar xzf ${shq(dir + '/' + file)} --exclude=./.sshos`
-    : `for w in ${shq(level)} ${shq(level + '_nether')} ${shq(level + '_the_end')}; do [ -d "$w" ] && mv "$w" "$SAVE/"; done
+    : `for w in ${((srv as any).worldPaths as string[] | undefined ?? [level, level + '_nether', level + '_the_end']).map(shq).join(' ')}; do [ -d "$w" ] && mv "$w" "$SAVE/"; done
 tar xzf ${shq(dir + '/' + file)}`}
 echo ${shq(`Restored ${file}.`)} "Previous files saved in $SAVE"
 ${wasRunning ? 'sh .sshos/ctl.sh start' : ''}`
@@ -565,6 +565,11 @@ echo "Done. Start the server to upgrade the world."`,
           )}
           <button className="btn" onClick={load}><RefreshCw size={12} /></button>
         </Row>
+        {sw.autoUpdate && newer[0] && (
+          <Row label={`Minecraft ${newer.find((v) => v.stable)?.id ?? newer[0].id} is available`} sub={`This server runs ${c.mcVersion}. Check that your plugins support the new version first (Content tab shows compatibility).`}>
+            <button className="btn primary" onClick={() => setTarget(newer.find((v) => v.stable)?.id ?? newer[0].id)}>Select</button>
+          </Row>
+        )}
         {sw.autoUpdate && (
           <Row label="Change Minecraft version" help="Upgrading is one-way for worlds. A world backup is made automatically. Downgrading is not supported by Minecraft and will corrupt worlds.">
             <select className="select" style={{ width: 140 }} value={target} onChange={(e) => setTarget(e.target.value)}>

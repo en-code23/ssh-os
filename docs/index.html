@@ -4,9 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SSH OS: a desktop for your servers</title>
-  <meta name="description" content="SSH OS turns your Linux servers into a macOS-style desktop: a Finder for SFTP/FTP, terminal tabs, Activity Monitor, code editor, and a full Minecraft server manager. Free for macOS and Windows." />
+  <meta name="description" content="SSH OS turns your Linux servers into a macOS-style desktop: a Finder for SFTP/FTP, terminal tabs, Activity Monitor, code editor, Minecraft and Terraria server managers, and Codex. Free for macOS and Windows." />
   <meta property="og:title" content="SSH OS: a desktop for your servers" />
-  <meta property="og:description" content="Finder, Terminal, Activity Monitor and a Minecraft server manager for every machine you can SSH into." />
+  <meta property="og:description" content="Finder, Terminal, Activity Monitor, Minecraft and Terraria server managers for every machine you can SSH into." />
   <meta property="og:image" content="assets/finder.jpg" />
   <link rel="icon" href="assets/icon.png" />
   <style>
@@ -114,6 +114,7 @@
       <div class="links">
         <a href="#features">Features</a>
         <a href="#minecraft">Minecraft</a>
+        <a href="#terraria">Terraria</a>
         <a href="#screens">Screenshots</a>
         <a href="#download">Download</a>
         <a class="gh" href="https://github.com/en-code23/ssh-os">GitHub</a>
@@ -125,7 +126,7 @@
     <div class="wrap">
       <img class="icon" src="assets/icon.png" alt="SSH OS icon" />
       <h1>Your servers,<br /><span>as a desktop.</span></h1>
-      <p class="lead">SSH OS turns every machine you can SSH or FTP into a familiar desktop: a Finder for your files, terminal tabs, an Activity Monitor, a code editor and a complete Minecraft server manager.</p>
+      <p class="lead">SSH OS turns every machine you can SSH or FTP into a familiar desktop: a Finder for your files, terminal tabs, an Activity Monitor, a code editor, complete Minecraft and Terraria server managers, and the Codex coding agent.</p>
       <div class="dl" id="hero-dl">
         <a class="btn primary" data-os="mac" href="https://github.com/en-code23/ssh-os/releases/latest/download/SSH-OS-mac-arm64.dmg">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2 19h20"/></svg>
@@ -204,11 +205,12 @@
         <div class="frame"><img src="assets/mc-overview.jpg" alt="Minecraft server overview" loading="lazy" /></div>
       </div>
       <div class="grid" style="margin-top:44px">
-        <div class="card"><h3>New server wizard</h3><p>Paper by default, any Minecraft version. It installs Java for you (no sudo), suggests memory for your machine, and walks you through every setting with help.</p></div>
-        <div class="card"><h3>Plugins, mods & packs</h3><p>Search Modrinth, Hangar and SpigotMC and install with one click. Required dependencies install too. Data packs and server resource packs are included.</p></div>
+        <div class="card"><h3>New server wizard</h3><p>Paper and the newest Minecraft version by default. Pick how many players you expect and SSH OS sizes memory and view distance for your machine. It installs Java for you (no sudo).</p></div>
+        <div class="card"><h3>Plugins, mods & packs</h3><p>Search Modrinth, Hangar and SpigotMC and install with one click. Every add-on is checked against your server version, outdated ones are flagged, updates install in one click, and plugin configs open in the editor.</p></div>
         <div class="card"><h3>Automatic updates</h3><p>Scheduled updates for the server jar and your plugins, even while SSH OS is closed. Old versions are kept so you can roll back.</p></div>
         <div class="card"><h3>Every setting, explained</h3><p>Each <code>server.properties</code> key has a typed editor and a “?” help popover. Also covers Java, JVM flags (Aikar/Paper), game rules and config files.</p></div>
         <div class="card"><h3>Backups & restore</h3><p>World or full backups on a schedule with retention. Restoring keeps a safety copy of the current files.</p></div>
+        <div class="card"><h3>Duplicate servers</h3><p>Copy a server, with or without its worlds, to test updates or plugins. The copy gets its own folder, port and schedules.</p></div>
         <div class="card"><h3>Always running</h3><p>Runs in a background tmux/screen session, restarts after crashes, starts on boot and supports scheduled restarts. Includes a live console with history.</p></div>
       </div>
       <div class="gallery" style="margin-top:28px">
@@ -216,6 +218,21 @@
         <figure><div class="frame"><img src="assets/mc-browse.jpg" alt="Install plugins from Modrinth" loading="lazy" /></div><figcaption>Install plugins from Modrinth, Hangar & SpigotMC</figcaption></figure>
         <figure><div class="frame"><img src="assets/mc-startup.jpg" alt="Startup and Java settings" loading="lazy" /></div><figcaption>Java, memory and JVM flags</figcaption></figure>
         <figure><div class="frame"><img src="assets/mc-backups.jpg" alt="Backups" loading="lazy" /></div><figcaption>Scheduled backups with one-click restore</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="terraria">
+    <div class="wrap">
+      <div class="center">
+        <div class="eyebrow">New in 2.1</div>
+        <h2>Terraria servers and Codex, too.</h2>
+        <p class="sub">The same one-click setup for Terraria, plus OpenAI's coding agent right on your server.</p>
+      </div>
+      <div class="grid">
+        <div class="card"><h3>Terraria servers</h3><p>TShock, tModLoader or the official server, the newest version installed and verified. Player presets, worlds, every <code>serverconfig.txt</code> setting with help, backups, crash restarts, scheduled restarts and duplicating.</p></div>
+        <div class="card"><h3>Plugins & mods</h3><p>TShock plugins from GitHub and tModLoader mods from the Steam Workshop: install, update, enable and edit configs. Plugins and mods built for another version are flagged.</p></div>
+        <div class="card"><h3>Codex on your server</h3><p>Install OpenAI's Codex CLI on any server in one click (no sudo, checksum-verified), sign in with ChatGPT or an API key, and open it in any folder from Finder.</p></div>
       </div>
     </div>
   </section>

@@ -4,7 +4,15 @@ use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-const KEYRING_SERVICE: &str = "SSH OS";
+/// Keychain service name. Debug builds with SSHOS_TEST_PROFILE use a separate one so
+/// automated tests never read or write the real app's saved passwords.
+fn keyring_service() -> &'static str {
+    #[cfg(debug_assertions)]
+    if std::env::var("SSHOS_TEST_PROFILE").is_ok() {
+        return "SSH OS (test)";
+    }
+    "SSH OS"
+}
 
 pub struct Store {
     path: PathBuf,
@@ -34,7 +42,7 @@ impl Store {
             .unwrap_or_else(|| {
                 // First run: import servers/settings from the Electron version (passwords
                 // were encrypted with Electron's safeStorage and can't be carried over).
-                let legacy = dirs::config_dir().map(|d| d.join("SSH OS").join("ssh-os.json"));
+                let legacy = if cfg!(debug_assertions) && std::env::var("SSHOS_TEST_PROFILE").is_ok() { None } else { dirs::config_dir().map(|d| d.join("SSH OS").join("ssh-os.json")) };
                 let mut v = legacy
                     .and_then(|p| std::fs::read_to_string(p).ok())
                     .and_then(|s| serde_json::from_str::<Value>(&s).ok())
@@ -72,8 +80,22 @@ impl Store {
     }
 
     // ---------------- secrets ----------------
+    /// Debug test profile: secrets in a scratch file next to the test data, never the keychain
+    /// (rebuilt debug binaries would otherwise trigger keychain permission prompts).
+    fn test_secrets_file() -> Option<PathBuf> {
+        #[cfg(debug_assertions)]
+        if let Ok(p) = std::env::var("SSHOS_TEST_PROFILE") {
+            return Some(PathBuf::from(p).join("test-secrets.json"));
+        }
+        None
+    }
+
     fn secret(id: &str) -> Map<String, Value> {
-        keyring::Entry::new(KEYRING_SERVICE, id)
+        if let Some(f) = Self::test_secrets_file() {
+            let all: Value = std::fs::read_to_string(f).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| json!({}));
+            return all[id].as_object().cloned().unwrap_or_default();
+        }
+        keyring::Entry::new(keyring_service(), id)
             .ok()
             .and_then(|e| e.get_password().ok())
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
@@ -82,8 +104,15 @@ impl Store {
     }
 
     fn set_secret(id: &str, sec: &Map<String, Value>) {
-        if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, id) {
-            if sec.values().any(|v| v.as_str().map(|s| !s.is_empty()).unwrap_or(false)) {
+        let has = sec.values().any(|v| v.as_str().map(|s| !s.is_empty()).unwrap_or(false));
+        if let Some(f) = Self::test_secrets_file() {
+            let mut all: Value = std::fs::read_to_string(&f).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| json!({}));
+            if has { all[id] = Value::Object(sec.clone()) } else if let Some(o) = all.as_object_mut() { o.remove(id); }
+            let _ = std::fs::write(f, all.to_string());
+            return;
+        }
+        if let Ok(e) = keyring::Entry::new(keyring_service(), id) {
+            if has {
                 let _ = e.set_password(&Value::Object(sec.clone()).to_string());
             } else {
                 let _ = e.delete_credential();
@@ -178,9 +207,7 @@ impl Store {
                 a.retain(|c| c["serverId"] != id);
             }
         }
-        if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, id) {
-            let _ = e.delete_credential();
-        }
+        Self::set_secret(id, &Map::new());
         self.save();
     }
 

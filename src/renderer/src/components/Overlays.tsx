@@ -156,6 +156,7 @@ function Spotlight() {
     for (const a of Object.values(APPS)) {
       if (['quicklook', 'info'].includes(a.id)) continue
       if (a.id === 'minecraft' && useStore.getState().settings.showMinecraft === 'never') continue
+      if (a.id === 'terraria' && useStore.getState().settings.showTerraria === 'never') continue
       if (m(a.name)) out.push({ group: 'Applications', key: a.id, label: a.name, icon: <AppIcon icon={a.icon} bg={a.bg} size={24} />, run: () => launch(a.id as AppId, { forceNew: true }) })
     }
     for (const s of servers) {

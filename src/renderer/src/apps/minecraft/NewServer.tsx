@@ -6,12 +6,14 @@ import { useMc, scanHost, addExtraDir } from '../../lib/mc/store'
 import { listVersions, resolveServerJar, Software, SOFTWARE, McVersion, javaFor, temurinUrl, mojangUuid } from '../../lib/mc/apis'
 import { defaultConfig, safeFileName, fetchCmd, installJavaScript, listJava, Schedule, writeManagement, ctl, JavaInstall } from '../../lib/mc/server'
 import { PROP_BY_KEY } from '../../lib/mc/properties'
+import { PLAYER_PRESETS, tune } from '../../lib/mc/tuning'
+import { latestStable } from '../../lib/mc/apis'
 import { Spinner, Switch } from '../../components/ui'
 import { Row, ScheduleEditor, Section, useTaskRunner } from './common'
 import { McIcon } from './Minecraft'
 import { PropControl } from './Settings'
 
-const STEPS = ['Basics', 'Software', 'Gameplay', 'Performance', 'Automation'] as const
+const STEPS = ['Basics', 'Software', 'Players', 'Gameplay', 'Performance', 'Automation'] as const
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'server'
 
@@ -54,6 +56,7 @@ export function NewServer({ hostId: initialHost, onCancel, onCreated }: { hostId
   const [startNow, setStartNow] = useState(true)
   const [eula, setEula] = useState(false)
   const [portBusy, setPortBusy] = useState(false)
+  const [players, setPlayers] = useState(5)
 
   // defaults that depend on the host
   useEffect(() => {
@@ -61,8 +64,6 @@ export function NewServer({ hostId: initialHost, onCancel, onCreated }: { hostId
     setSys(null)
     listJava(hostId).then((s) => {
       setSys(s)
-      const mb = Math.floor(s.memTotal / 1024 / 1024)
-      setXmx(Math.max(1024, Math.min(software === 'fabric' ? 6144 : 4096, Math.floor((mb - 1536) / 512) * 512)))
     })
     const used = (mc[hostId] ?? []).map((s) => s.port)
     let p = 25565
@@ -80,7 +81,8 @@ export function NewServer({ hostId: initialHost, onCancel, onCreated }: { hostId
     listVersions(software)
       .then((v) => {
         setVersions(v)
-        setVersion(v.find((x) => x.stable)?.id ?? v[0]?.id ?? '')
+        // always default to the newest stable Minecraft version
+        setVersion(latestStable(v)?.id ?? v[0]?.id ?? '')
       })
       .catch((e) => toast({ title: 'Could not load versions', body: e.message, kind: 'error' }))
     if (software !== 'paper') setFlags((f) => (f === 'paper' ? 'aikar' : f))
@@ -102,6 +104,19 @@ export function NewServer({ hostId: initialHost, onCancel, onCreated }: { hostId
     return () => clearTimeout(t)
   }, [hostId, props['server-port']]) // eslint-disable-line
 
+  // Size the server for the expected player count on this machine.
+  const tuning = useMemo(() => (sys ? tune(players, software, Math.floor(sys.memTotal / 1024 / 1024), sys.cpus) : null), [players, software, sys])
+  useEffect(() => {
+    if (!tuning) return
+    setXmx(tuning.xmxMb)
+    setProps((p) => ({
+      ...p,
+      'max-players': String(players),
+      'view-distance': String(tuning.viewDistance),
+      'simulation-distance': String(tuning.simulationDistance),
+    }))
+  }, [tuning]) // eslint-disable-line
+
   const goodJava: JavaInstall | undefined = useMemo(
     () => sys?.installs.filter((j) => javaNeed && j.major >= javaNeed).sort((a, b) => a.major - b.major)[0],
     [sys, javaNeed],
@@ -113,6 +128,7 @@ export function NewServer({ hostId: initialHost, onCancel, onCreated }: { hostId
   const valid = [
     !!hostId && !!name.trim() && dir.startsWith('/') && !existsName,
     !!version,
+    players >= 1,
     true,
     xmx >= 512,
     eula,
@@ -273,7 +289,7 @@ echo "Downloaded $(du -h ${shq(dl.fileName)} | cut -f1)"`
               <Row label="Version" sub={javaNeed ? `Requires Java ${javaNeed} or newer` : undefined}>
                 {versions ? (
                   <select className="select" style={{ width: 200 }} value={version} onChange={(e) => setVersion(e.target.value)}>
-                    {shownVersions.slice(0, 120).map((v) => <option key={v.id} value={v.id}>{v.id}{!v.stable ? ' (preview)' : ''}</option>)}
+                    {shownVersions.slice(0, 120).map((v) => <option key={v.id} value={v.id}>{v.id}{v.id === latestStable(versions ?? [])?.id ? ' (latest)' : ''}{!v.stable ? ' (preview)' : ''}</option>)}
                   </select>
                 ) : <Spinner size={14} />}
               </Row>
@@ -285,6 +301,42 @@ echo "Downloaded $(du -h ${shq(dl.fileName)} | cut -f1)"`
         )}
 
         {step === 2 && (
+          <>
+            <h2 className="wiz-h">How many players?</h2>
+            <p className="muted wiz-p">SSH OS sizes memory, view distance and simulation distance for this many players on <b>{hosts.find((h) => h.id === hostId)?.name}</b>. You can fine-tune everything in the Performance step.</p>
+            <div className="sw-grid">
+              {PLAYER_PRESETS.map((p) => (
+                <button key={p.players} className={`sw-card ${players === p.players ? 'on' : ''}`} onClick={() => setPlayers(p.players)}>
+                  <div style={{ fontSize: 22, fontWeight: 700, minWidth: 74, textAlign: 'center' }}>{p.label}</div>
+                  <div style={{ textAlign: 'left' }}>
+                    <b>{p.label} players</b>
+                    <div className="small muted">{p.hint}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <Section title="Exact number">
+              <Row label="Maximum players" help="Becomes max-players in server.properties. Players beyond this are told the server is full.">
+                <input className="input" type="number" min={1} max={1000} style={{ width: 90 }} value={players} onChange={(e) => setPlayers(Math.max(1, Math.min(1000, +e.target.value || 1)))} />
+              </Row>
+            </Section>
+            {!tuning ? <Spinner size={16} /> : (
+              <div className="card" style={{ lineHeight: 1.6 }}>
+                <b>Recommended for {players} player{players === 1 ? '' : 's'}</b>
+                <div className="row" style={{ gap: 18, margin: '8px 0', flexWrap: 'wrap' }}>
+                  <span><span className="muted">Memory</span> <b>{(tuning.xmxMb / 1024).toFixed(1)} GB</b></span>
+                  <span><span className="muted">View distance</span> <b>{tuning.viewDistance}</b></span>
+                  <span><span className="muted">Simulation distance</span> <b>{tuning.simulationDistance}</b></span>
+                  <span><span className="muted">Machine</span> <b>{(memMb / 1024).toFixed(1)} GB · {sys?.cpus} cores</b></span>
+                </div>
+                {tuning.notes.map((n, i) => <div key={i} className="small muted">{n}</div>)}
+                {tuning.warnings.map((w, i) => <div key={i} className="small" style={{ color: 'var(--orange)', marginTop: 4 }}>⚠ {w}</div>)}
+              </div>
+            )}
+          </>
+        )}
+
+        {step === 3 && (
           <>
             <h2 className="wiz-h">Gameplay & players</h2>
             <p className="muted wiz-p">These go into server.properties. Click ? for an explanation of any setting.</p>
@@ -301,11 +353,11 @@ echo "Downloaded $(du -h ${shq(dl.fileName)} | cut -f1)"`
           </>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <>
             <h2 className="wiz-h">Performance & Java</h2>
             <Section title="Memory" help="Maximum RAM the server may use. Leave at least 1–1.5 GB for the operating system. More is not always faster.">
-              <Row label="Maximum memory" sub={sys ? `This machine has ${(memMb / 1024).toFixed(1)} GB. Suggested: ${(Math.max(1024, Math.min(software === 'fabric' ? 6144 : 4096, Math.floor((memMb - 1536) / 512) * 512)) / 1024).toFixed(1)} GB` : undefined}>
+              <Row label="Maximum memory" sub={sys && tuning ? `This machine has ${(memMb / 1024).toFixed(1)} GB. Recommended for ${players} players: ${(tuning.xmxMb / 1024).toFixed(1)} GB` : undefined}>
                 <input type="range" min={512} max={Math.max(1024, memMb - 512)} step={256} value={xmx} onChange={(e) => setXmx(+e.target.value)} style={{ width: 200 }} />
                 <span className="mono" style={{ width: 64, textAlign: 'right' }}>{(xmx / 1024).toFixed(2)} GB</span>
               </Row>
@@ -338,7 +390,7 @@ echo "Downloaded $(du -h ${shq(dl.fileName)} | cut -f1)"`
           </>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <>
             <h2 className="wiz-h">Automation</h2>
             <Section title="Reliability">

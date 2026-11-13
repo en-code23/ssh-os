@@ -90,6 +90,8 @@ export interface Settings {
   terminalTheme: 'auto' | 'dark' | 'light' | 'ocean' | 'solarized'
   /** Minecraft app in the Dock: auto = only when a server folder is detected */
   showMinecraft: 'auto' | 'always' | 'never'
+  /** Terraria app in the Dock: auto = only when a server folder is detected */
+  showTerraria: 'auto' | 'always' | 'never'
   autoCheckUpdates: boolean
   autoDownloadUpdates: boolean
 }
@@ -104,6 +106,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   terminalTheme: 'auto',
   showMinecraft: 'auto',
+  showTerraria: 'auto',
   autoCheckUpdates: true,
   autoDownloadUpdates: true,
 }

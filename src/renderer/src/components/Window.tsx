@@ -1,4 +1,4 @@
-import { createContext, memo, ReactNode, useContext, useEffect, useRef, useState } from 'react'
+import { Component, createContext, memo, ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Minus, Plus, X } from 'lucide-react'
 import { closeWindow, focusWindow, minimizeWindow, toggleMaximize, updateWindow, useStore, Win } from '../lib/store'
@@ -6,6 +6,27 @@ import { APPS } from '../apps/meta'
 import { COMPONENTS } from '../apps/registry'
 
 const TitlebarCtx = createContext<HTMLElement | null>(null)
+
+/** Keeps a crash inside one app window from blanking the whole desktop. */
+class AppErrorBoundary extends Component<{ name: string; children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null }
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+  componentDidCatch(error: Error) {
+    console.error(`[${this.props.name}]`, error)
+  }
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div className="empty">
+        <h3>{this.props.name} ran into a problem</h3>
+        <div className="small mono" style={{ maxWidth: 480, wordBreak: 'break-word' }}>{this.state.error.message}</div>
+        <button className="btn" onClick={() => this.setState({ error: null })}>Try Again</button>
+      </div>
+    )
+  }
+}
 
 /** Renders children into the window's titlebar (Finder-style unified toolbar). */
 export function Toolbar({ children }: { children: ReactNode }) {
@@ -158,7 +179,9 @@ export const Window = memo(function Window({ win }: { win: Win }) {
       </div>
       <div className="window-body">
         <TitlebarCtx.Provider value={titleEl}>
-          <Comp win={win} />
+          <AppErrorBoundary name={meta.name}>
+            <Comp win={win} />
+          </AppErrorBoundary>
         </TitlebarCtx.Provider>
       </div>
       {!win.maximized &&

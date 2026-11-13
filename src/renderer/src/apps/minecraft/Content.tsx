@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, ExternalLink, Package, RefreshCw, Search, Trash2, ArrowUpCircle, Power, X } from 'lucide-react'
+import { Download, ExternalLink, Package, RefreshCw, Search, Trash2, ArrowUpCircle, Power, X, Settings2 } from 'lucide-react'
+import { launch } from '../launch'
 import { api, shq } from '../../lib/api'
 import { confirm, toast } from '../../lib/store'
 import {
@@ -8,6 +9,8 @@ import {
 import { fetchCmd, MC_DIR, run, safeFileName } from '../../lib/mc/server'
 import { parseProps, serializeProps } from '../../lib/mc/properties'
 import { formatBytes } from '../../lib/files'
+import { checkApiVersion, checkDeclared, checkTested, inRange, type Compat } from '../../lib/mc/compat'
+import { openInEditor } from '../../lib/actions'
 import { Segmented, Spinner, Switch } from '../../components/ui'
 import { Help, useCtx } from './common'
 
@@ -26,6 +29,12 @@ interface Installed {
   mrIcon?: string
   mrProject?: string
   update?: { version: string; url: string; fileName: string; sha1: string; versionId: string }
+  'api-version'?: string
+  mcRange?: string | string[]
+  modid?: string
+  mrGameVersions?: string[]
+  mrLoaders?: string[]
+  compat?: Compat
 }
 
 const LIST_PY = (level: string) => `python3 - <<'EOF'
@@ -47,13 +56,15 @@ for d, kind in [("plugins", "plugin"), ("mods", "mod"), (${JSON.stringify(level)
                 for meta in ("paper-plugin.yml", "plugin.yml"):
                     if meta in names:
                         t = z.read(meta).decode("utf8", "ignore")
-                        for k in ("name", "version", "description"):
+                        for k in ("name", "version", "description", "api-version"):
                             m = re.search(r"^" + k + r":\\s*['\\"]?(.*?)['\\"]?\\s*$", t, re.M)
                             if m: e[k] = m.group(1)
                         break
                 if "fabric.mod.json" in names:
                     j = json.loads(z.read("fabric.mod.json").decode("utf8", "ignore"), strict=False)
-                    e.update(name=j.get("name"), version=j.get("version"), description=j.get("description"))
+                    e.update(name=j.get("name"), version=j.get("version"), description=j.get("description"), modid=j.get("id"))
+                    dep = (j.get("depends") or {}).get("minecraft")
+                    if dep: e["mcRange"] = dep
                 if "pack.mcmeta" in names and "description" not in e:
                     j = json.loads(z.read("pack.mcmeta").decode("utf8", "ignore"), strict=False)
                     desc = j.get("pack", {}).get("description")
@@ -94,6 +105,22 @@ function InstalledView({ onBrowse }: { onBrowse: () => void }) {
   const [rp, setRp] = useState<{ url: string; sha1: string; required: boolean } | null>(null)
   const [checking, setChecking] = useState(false)
   const [noPython, setNoPython] = useState(false)
+  const [rpCompat, setRpCompat] = useState<Compat | null>(null)
+  const [configFor, setConfigFor] = useState<Installed | null>(null)
+  const mc = srv.config.mcVersion
+  const sw = srv.config.software
+
+  /** Is this add-on compatible with the server's Minecraft version and software? */
+  const compatOf = (i: Installed): Compat => {
+    const pluginServer = SOFTWARE[sw]?.content === 'plugins'
+    if (i.kind === 'mod' && pluginServer) return { status: 'incompatible', reason: `${SOFTWARE[sw].name} doesn't load mods from mods/; this file is ignored.` }
+    if (i.kind === 'plugin' && SOFTWARE[sw]?.content === 'mods') return { status: 'incompatible', reason: `${SOFTWARE[sw].name} doesn't load plugins from plugins/; this file is ignored.` }
+    if (i.mrGameVersions?.length) return checkDeclared({ gameVersions: i.mrGameVersions, loaders: i.mrLoaders, kind: i.kind }, mc, sw)
+    if (i.kind === 'plugin') return checkApiVersion(i['api-version'], mc)
+    if (i.kind === 'mod' && i.mcRange) return inRange(mc, i.mcRange) ? { status: 'ok' } : { status: 'incompatible', reason: `Requires Minecraft ${[i.mcRange].flat().join(' or ')}; server runs ${mc}.` }
+    return { status: 'unknown' }
+  }
+  const withCompat = (list: Installed[]) => list.map((i) => ({ ...i, compat: compatOf(i) }))
 
   const load = async () => {
     setItems(null)
@@ -116,7 +143,9 @@ else echo NOPY; fi`, 60000)
     }
     let list: Installed[] = []
     try { list = JSON.parse(r.stdout.trim().split('\n').pop() || '[]') } catch { list = [] }
+    list = withCompat(list)
     setItems(list)
+    checkResourcePack(props['resource-pack-sha1'])
     // enrich with Modrinth metadata
     const hashes = list.map((i) => i.sha1).filter(Boolean) as string[]
     if (!hashes.length) return
@@ -125,20 +154,33 @@ else echo NOPY; fi`, 60000)
       const ids = [...new Set(Object.values(vers ?? {}).map((v: any) => v.project_id))]
       const projects = ids.length ? await api.httpJson<any[]>(`https://api.modrinth.com/v2/projects?ids=${encodeURIComponent(JSON.stringify(ids))}`) : []
       const byId = Object.fromEntries((projects ?? []).map((p) => [p.id, p]))
-      setItems(list.map((i) => {
+      list = withCompat(list.map((i) => {
         const v = i.sha1 ? vers?.[i.sha1] : undefined
         const p = v ? byId[v.project_id] : undefined
-        return p ? { ...i, mrTitle: p.title, mrIcon: p.icon_url, mrProject: p.id, version: i.version ?? v.version_number } : i
+        return p ? { ...i, mrTitle: p.title, mrIcon: p.icon_url, mrProject: p.id, version: i.version ?? v.version_number, mrGameVersions: v.game_versions, mrLoaders: v.loaders } : i
       }))
+      setItems(list)
+      // look for updates right away so outdated and incompatible add-ons are flagged without a click
+      checkUpdates(list, true)
     } catch { /* offline: fine */ }
+  }
+
+  const checkResourcePack = async (sha1?: string) => {
+    setRpCompat(null)
+    if (!sha1 || !/^[a-f0-9]{40}$/i.test(sha1)) return
+    try {
+      const v = await api.httpJson<any>(`https://api.modrinth.com/v2/version_file/${sha1}?algorithm=sha1`)
+      if (v?.game_versions) setRpCompat(checkDeclared({ gameVersions: v.game_versions, kind: 'resourcepack' }, mc, sw))
+    } catch { /* unknown pack */ }
   }
   useEffect(() => { load() }, [srv.dir]) // eslint-disable-line
 
-  const checkUpdates = async () => {
-    if (!items) return
+  const checkUpdates = async (current = items, quiet = false) => {
+    if (!current) return
     setChecking(true)
     try {
-      const hashes = items.filter((i) => i.sha1 && i.enabled).map((i) => i.sha1!)
+      const hashes = current.filter((i) => i.sha1 && i.enabled).map((i) => i.sha1!)
+      if (!hashes.length) return
       const loaders = [...SOFTWARE[srv.config.software].loaders, 'datapack']
       const upd = await api.httpJson<Record<string, any>>('https://api.modrinth.com/v2/version_files/update', {
         method: 'POST', body: { hashes, algorithm: 'sha1', loaders, game_versions: [srv.config.mcVersion] },
@@ -152,9 +194,9 @@ else echo NOPY; fi`, 60000)
         n++
         return { ...i, update: { version: v.version_number, url: f.url, fileName: f.filename, sha1: f.hashes.sha1, versionId: v.id } }
       }))
-      toast({ title: n ? `${n} update${n > 1 ? 's' : ''} available` : 'Everything is up to date', body: 'Checked against Modrinth. Hangar/Spigot installs are checked by the Updates tab.', kind: n ? 'info' : 'success' })
+      if (!quiet) toast({ title: n ? `${n} update${n > 1 ? 's' : ''} available` : 'Everything is up to date', body: 'Checked against Modrinth. Hangar/Spigot installs are checked by the Updates tab.', kind: n ? 'info' : 'success' })
     } catch (e: any) {
-      toast({ title: 'Update check failed', body: e.message, kind: 'error' })
+      if (!quiet) toast({ title: 'Update check failed', body: e.message, kind: 'error' })
     } finally {
       setChecking(false)
     }
@@ -204,6 +246,7 @@ else echo NOPY; fi`, 60000)
   }
 
   const updates = (items ?? []).filter((i) => i.update)
+  const incompatible = (items ?? []).filter((i) => i.enabled && i.compat?.status === 'incompatible')
   const groups: [string, Installed['kind']][] = [['Plugins', 'plugin'], ['Mods', 'mod'], ['Data packs', 'datapack']]
 
   return (
@@ -211,10 +254,23 @@ else echo NOPY; fi`, 60000)
       <div className="row" style={{ marginBottom: 12 }}>
         <div className="grow small muted">{items ? `${items.length} installed` : 'Loading…'}{noPython ? ' · install python3 on the server for names and update checks' : ''}</div>
         <button className="btn" onClick={load}><RefreshCw size={12} /></button>
-        <button className="btn" disabled={!items || checking || noPython} onClick={checkUpdates}>{checking ? <Spinner size={12} /> : <ArrowUpCircle size={12} />} Check for Updates</button>
+        <button className="btn" disabled={!items || checking || noPython} onClick={() => checkUpdates()}>{checking ? <Spinner size={12} /> : <ArrowUpCircle size={12} />} Check for Updates</button>
         {updates.length > 0 && <button className="btn primary" onClick={() => applyUpdate(updates)}>Update All ({updates.length})</button>}
         <button className="btn primary" onClick={onBrowse}><Download size={12} /> Get More</button>
       </div>
+      {incompatible.length > 0 && (
+        <div className="card small" style={{ marginBottom: 14, borderLeft: '3px solid var(--red)', lineHeight: 1.5 }}>
+          <b style={{ color: 'var(--red)' }}>{incompatible.length} add-on{incompatible.length > 1 ? 's are' : ' is'} not compatible with Minecraft {mc}</b>
+          <div className="muted">{incompatible.map((i) => i.mrTitle ?? i.name ?? i.file).join(', ')}.{' '}
+            {incompatible.some((i) => i.update) ? 'Updates are available for some of them.' : 'Look for a newer version or disable them to avoid startup errors.'}</div>
+        </div>
+      )}
+      {updates.length > 0 && (
+        <div className="card small row" style={{ marginBottom: 14, borderLeft: '3px solid var(--green)' }}>
+          <span className="grow"><b>{updates.length} update{updates.length > 1 ? 's' : ''} available</b> <span className="muted">· {updates.map((i) => i.mrTitle ?? i.name ?? i.file).join(', ')}</span></span>
+          <button className="btn primary" onClick={() => applyUpdate(updates)}>Update All</button>
+        </div>
+      )}
 
       <div className="sb-section" style={{ paddingLeft: 2 }}>Resource pack</div>
       <div className="group-box" style={{ marginBottom: 16 }}>
@@ -223,6 +279,8 @@ else echo NOPY; fi`, 60000)
             <div style={{ minWidth: 0 }}>
               <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} className="mono small">{rp.url}</div>
               <div className="small muted">{rp.required ? 'Required for players' : 'Optional for players'}{rp.sha1 ? ` · sha1 ${rp.sha1.slice(0, 10)}…` : ' · no checksum set'}</div>
+              {rpCompat?.status === 'incompatible' && <div className="small" style={{ color: 'var(--red)' }}>Not made for Minecraft {mc}: {rpCompat.reason} Players may see missing or broken textures.</div>}
+              {rpCompat?.status === 'ok' && <div className="small" style={{ color: 'var(--green)' }}>Made for Minecraft {mc}</div>}
             </div>
             <button className="btn" onClick={removeRp}><X size={12} /> Remove</button>
           </div>
@@ -250,14 +308,21 @@ else echo NOPY; fi`, 60000)
                         {!i.enabled && <span className="badge">Disabled</span>}
                         {srv.config.content[i.file] && <span className="badge">{srv.config.content[i.file].source}</span>}
                         {i.update && <span className="badge" style={{ color: 'var(--green)' }}>→ {i.update.version}</span>}
+                        {i.enabled && i.compat?.status === 'incompatible' && <span className="badge" style={{ color: 'var(--red)' }} title={i.compat.reason}>Not compatible</span>}
+                        {i.enabled && i.compat?.status === 'ok' && <span className="badge" style={{ color: 'var(--green)' }} title={`Works with Minecraft ${mc}`}>✓ {mc}</span>}
                       </div>
                       <div className="small muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 520 }}>
                         {i.description || i.file} · {formatBytes(i.size, true)}
                       </div>
+                      {i.enabled && i.compat?.status === 'incompatible' && (
+                        <div className="small" style={{ color: 'var(--red)' }}>{i.compat.reason}{i.update ? ' The available update supports this version.' : ''}</div>
+                      )}
+                      {i.enabled && i.compat?.status === 'unknown' && i.compat.reason && <div className="small" style={{ color: 'var(--orange)' }}>{i.compat.reason}</div>}
                     </div>
                   </div>
                   <div className="row">
                     {i.update && <button className="btn primary" onClick={() => applyUpdate([i])}>Update</button>}
+                    {i.kind !== 'datapack' && <button className="tb-btn" title="Edit configuration" onClick={() => setConfigFor(i)}><Settings2 size={14} /></button>}
                     {i.mrProject && <button className="tb-btn" title="Open on Modrinth" onClick={() => api.openExternal(`https://modrinth.com/project/${i.mrProject}`)}><ExternalLink size={13} /></button>}
                     <button className="tb-btn" title={i.enabled ? 'Disable' : 'Enable'} onClick={() => toggle(i)}><Power size={14} /></button>
                     <button className="tb-btn" title="Remove" onClick={() => remove(i)}><Trash2 size={14} /></button>
@@ -275,6 +340,55 @@ else echo NOPY; fi`, 60000)
           <button className="btn primary" onClick={onBrowse}>Browse Modrinth, Hangar & SpigotMC</button>
         </div>
       )}
+      {configFor && <ConfigSheet item={configFor} onClose={() => setConfigFor(null)} />}
+    </div>
+  )
+}
+
+/** Lists an add-on's configuration files and opens them in the Code Editor. */
+function ConfigSheet({ item, onClose }: { item: Installed; onClose: () => void }) {
+  const { srv } = useCtx()
+  const [files, setFiles] = useState<{ path: string; size: number }[] | null>(null)
+  const title = item.mrTitle ?? item.name ?? item.file
+  // plugins keep config in plugins/<plugin.yml name>/, Fabric mods in config/ (named after the mod id)
+  const folder = item.kind === 'plugin' ? `plugins/${item.name ?? item.file.replace(/\.jar(\.disabled)?$/, '')}` : 'config'
+  const filter = item.kind === 'mod' ? (item.modid ?? item.file.replace(/[-_.].*$/, '')).toLowerCase() : ''
+
+  useEffect(() => {
+    const exts = '\\.(ya?ml|json5?|toml|properties|conf|cfg|txt|ini|hocon|xml|lang|mcmeta|sk)$'
+    run(srv.hostId, `cd ${shq(srv.dir)} && [ -d ${shq(folder)} ] && find ${shq(folder)} -maxdepth 4 -type f -size -2M 2>/dev/null | grep -iE '${exts}' | head -200 | while read -r f; do echo "$(stat -c %s "$f" 2>/dev/null || echo 0)|$f"; done; true`)
+      .then((r) => {
+        const all = r.stdout.split('\n').filter(Boolean).map((l) => { const i = l.indexOf('|'); return { size: +l.slice(0, i), path: l.slice(i + 1) } })
+        setFiles(filter ? all.filter((f) => f.path.toLowerCase().includes(filter)) : all)
+      })
+      .catch(() => setFiles([]))
+  }, [folder, filter]) // eslint-disable-line
+
+  return (
+    <div className="modal-backdrop" style={{ position: 'absolute', paddingTop: 30, zIndex: 40 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="sheet" style={{ width: 620, maxHeight: '80%', display: 'flex', flexDirection: 'column' }}>
+        <h3 style={{ marginBottom: 4 }}>{title} configuration</h3>
+        <div className="small muted" style={{ marginBottom: 12 }}>
+          Files in <span className="mono">{folder}/</span>{filter ? ` matching “${filter}”` : ''}. Changes usually need a restart (or the plugin’s own reload command).
+        </div>
+        <div className="grow scroll group-box" style={{ minHeight: 80 }}>
+          {files === null ? <div className="group-row"><Spinner size={14} /></div> : files.length === 0 ? (
+            <div className="group-row muted">No configuration files yet. Most plugins create them on their first start.</div>
+          ) : files.map((f) => (
+            <div key={f.path} className="group-row">
+              <span className="mono small" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.path.slice(folder.length + 1) || f.path}</span>
+              <span className="row">
+                <span className="small muted">{formatBytes(f.size, true)}</span>
+                <button className="btn" onClick={() => { openInEditor(srv.hostId, `${srv.dir}/${f.path}`); onClose() }}>Edit</button>
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="sheet-actions">
+          <button className="btn" onClick={() => launch('finder', { serverId: srv.hostId, forceNew: true, props: { path: `${srv.dir}/${folder}` } })}>Show in Finder</button>
+          <button className="btn primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -430,6 +544,12 @@ function BrowseView() {
                   <b style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.title}</b>
                   {h.author && <span className="small muted">by {h.author}</span>}
                   {h.external && <span className="badge">External</span>}
+                  {(() => {
+                    const c = h.tested ? checkTested(h.gameVersions, srv.config.mcVersion) : checkDeclared({ gameVersions: h.gameVersions, kind: h.kind }, srv.config.mcVersion, srv.config.software)
+                    if (c.status === 'incompatible') return <span className="badge" style={{ color: 'var(--red)' }} title={c.reason}>Not for {srv.config.mcVersion}</span>
+                    if (c.status === 'ok') return <span className="badge" style={{ color: 'var(--green)' }}>✓ {srv.config.mcVersion}</span>
+                    return null
+                  })()}
                 </div>
                 <div className="small muted mc-desc">{h.description}</div>
                 <div className="small muted row" style={{ gap: 10, marginTop: 3 }}>
