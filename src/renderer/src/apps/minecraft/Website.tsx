@@ -3,7 +3,8 @@ import { Copy, ExternalLink, Globe, Lock, Map as MapIcon, Minus, Plus, RefreshCw
 import { api } from '../../lib/api'
 import { toast } from '../../lib/store'
 import { Spinner, Switch } from '../../components/ui'
-import { chunkbaseUrl, configureWebsite, defaultWeb, portFree, randomSeed, websiteStatus, webctl, type MapResult, type WebSettings, type WebStatus } from '../../lib/web/site'
+import { launch } from '../launch'
+import { chunkbaseUrl, openPortsCommand, configureWebsite, defaultWeb, portFree, randomSeed, websiteStatus, webctl, type MapResult, type WebSettings, type WebStatus } from '../../lib/web/site'
 import { Row, Section, useCtx } from './common'
 
 const copy = (t: string, what = 'Copied') => { navigator.clipboard.writeText(t); toast({ title: what, kind: 'success' }) }
@@ -276,6 +277,19 @@ export function WebsiteTab() {
           ? <><button className="btn" disabled={!!busy} onClick={() => act('restart')}>{busy === 'restart' ? <Spinner size={12} /> : <RefreshCw size={12} />} Restart</button><button className="btn" disabled={!!busy} onClick={() => act('stop')}>Stop</button></>
           : <button className="btn primary" disabled={!!busy} onClick={() => act('start')}>{busy === 'start' ? <Spinner size={12} /> : null} Start</button>)}
       </div>
+
+      {st?.firewall && st.state !== 'none' && (
+        <div className="card" style={{ marginBottom: 16, borderLeft: '3px solid var(--orange)', lineHeight: 1.5 }}>
+          <b>This server has a firewall ({st.firewall})</b>
+          <div className="small" style={{ marginTop: 4 }}>
+            If the website (port {st.port ?? form.port}) or the game (port {srv.port}) can't be reached from other computers, open both ports. This needs your server password (sudo) once.
+          </div>
+          <button className="btn primary" style={{ marginTop: 8 }} onClick={() => launch('terminal', { serverId: srv.hostId, forceNew: true, props: { command: openPortsCommand(st.firewall!, [st.port ?? form.port, srv.port]) } })}>
+            Open Ports {st.port ?? form.port} and {srv.port} in Terminal
+          </button>
+          <div className="small muted" style={{ marginTop: 6 }}>Some hosting providers also have a firewall in their web control panel; allow the same ports there if it still doesn't work.</div>
+        </div>
+      )}
 
       {st?.state === 'running' && (
         <Section title="Address" help="The page uses a self-signed certificate, so the browser shows a one-time warning: choose “Advanced → Continue/Proceed”. Compare the fingerprint below with the one the browser shows to be sure it is your server.">

@@ -1,7 +1,7 @@
 {
   "name": "ssh-os",
   "productName": "SSH OS",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "A macOS-style desktop for managing your servers over SSH, SFTP and FTP (Tauri). Based on cube-ssh.",
   "license": "MIT",
   "private": true,

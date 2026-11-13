@@ -108,12 +108,22 @@ export interface WebStatus {
   ips: string[]
   fingerprint: string
   log: string
+  /** an active firewall that may block the website/game ports */
+  firewall: 'ufw' | 'firewalld' | null
+}
+
+/** Terminal command that opens TCP ports in the server's firewall (needs sudo). */
+export function openPortsCommand(fw: 'ufw' | 'firewalld', ports: number[]) {
+  const ps = [...new Set(ports)].filter((p) => p > 0 && p < 65536)
+  return fw === 'ufw'
+    ? `${ps.map((p) => `sudo ufw allow ${p}/tcp`).join(' && ')} && sudo ufw status`
+    : `${ps.map((p) => `sudo firewall-cmd --permanent --add-port=${p}/tcp`).join(' && ')} && sudo firewall-cmd --reload && sudo firewall-cmd --list-ports`
 }
 
 export async function websiteStatus(hostId: string, dir: string): Promise<WebStatus> {
   const w = `${dir}/.sshos/web`
-  const r = await run(hostId, `cat ${shq(w + '/web.json')} 2>/dev/null; echo '@@'; [ -f ${shq(w + '/webctl.sh')} ] && sh ${shq(w + '/webctl.sh')} status; echo '@@'; hostname -I 2>/dev/null; echo '@@'; [ -f ${shq(w + '/cert.pem')} ] && sh ${shq(w + '/webctl.sh')} fingerprint; echo '@@'; tail -n 12 ${shq(w + '/web.log')} 2>/dev/null`)
-  const [json, st, ips, fp, log] = r.stdout.split('@@').map((x) => x.trim())
+  const r = await run(hostId, `cat ${shq(w + '/web.json')} 2>/dev/null; echo '@@'; [ -f ${shq(w + '/webctl.sh')} ] && sh ${shq(w + '/webctl.sh')} status; echo '@@'; hostname -I 2>/dev/null; echo '@@'; [ -f ${shq(w + '/cert.pem')} ] && sh ${shq(w + '/webctl.sh')} fingerprint; echo '@@'; tail -n 12 ${shq(w + '/web.log')} 2>/dev/null; echo '@@'; if [ "$(systemctl is-active ufw 2>/dev/null)" = active ] && grep -qs '^ENABLED=yes' /etc/ufw/ufw.conf; then echo ufw; elif [ "$(systemctl is-active firewalld 2>/dev/null)" = active ]; then echo firewalld; fi`)
+  const [json, st, ips, fp, log, fw] = r.stdout.split('@@').map((x) => x.trim())
   let cfg: any = null
   try { cfg = JSON.parse(json) } catch { /* none */ }
   return {
@@ -125,6 +135,7 @@ export async function websiteStatus(hostId: string, dir: string): Promise<WebSta
     ips: ips.split(/\s+/).filter((x) => x && !x.includes(':')),
     fingerprint: fp,
     log,
+    firewall: fw === 'ufw' || fw === 'firewalld' ? fw : null,
   }
 }
 
