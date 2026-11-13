@@ -49,6 +49,8 @@ export interface TrConfig {
   backups: { schedule: Schedule; keep: number; scope: 'worlds' | 'full'; dir: string }
   content: Record<string, TrContentRecord>
   createdAt: number
+  /** server website */
+  web?: import('../web/site').WebSettings
 }
 
 export interface TrServer {
@@ -193,6 +195,8 @@ start() {
   esac
   i=0; while [ $i -lt 20 ]; do running && break; sleep 0.5; i=$((i+1)); done
   if running; then echo "Started (PID $(cat $PIDF), $M)"; else echo "Failed to start. See .sshos/console.log:"; tail -n 20 .sshos/console.log 2>/dev/null; return 1; fi
+  # the server website (if set up) starts together with the server
+  [ -f .sshos/web/webctl.sh ] && [ ! -f .sshos/web/disabled ] && (sh .sshos/web/webctl.sh ensure >/dev/null 2>&1 &)
 }
 stop() {
   touch .sshos/stop-requested

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, Download, Globe2, RefreshCw, RotateCcw, Search, Trash2, UserPlus, Upload, ArrowUpCircle, Play } from 'lucide-react'
+import { Archive, Download, Globe2, RefreshCw, RotateCcw, Search, Trash2, UserPlus, Upload, ArrowUpCircle, Play, Map as MapIcon, Plus } from 'lucide-react'
 import { api, shq } from '../../lib/api'
 import { confirm, prompt, toast } from '../../lib/store'
 import { ctl, describeSchedule, MC_DIR, run, safeFileName } from '../../lib/mc/server'
@@ -9,6 +9,8 @@ import { HELP } from '../../lib/mc/help'
 import { formatBytes } from '../../lib/files'
 import { Spinner, Switch } from '../../components/ui'
 import { Row, Section, useCtx } from './common'
+import { SeedInput, WorldMapSheet } from './Website'
+import { renderWorldMap, type MapResult } from '../../lib/web/site'
 import { useLive } from './Minecraft'
 
 // ===========================================================================
@@ -244,6 +246,34 @@ export function WorldsTab() {
 
   const family = (name: string) => [name, `${name}_nether`, `${name}_the_end`]
 
+  const [view, setView] = useState<{ name: string; result: MapResult | null; error?: string } | null>(null)
+  const showMap = async (name: string) => {
+    setView({ name, result: null })
+    try {
+      if (srv.running && srv.managed && !srv.external) {
+        await ctl(srv.hostId, srv.dir, 'cmd', 'save-all')
+        await new Promise((r) => setTimeout(r, 2500))
+      }
+      const result = await renderWorldMap(srv.hostId, 'minecraft', `${srv.dir}/${name}`, { radius: (srv.config as any).web?.mapRadius ?? 1024 })
+      setView((v) => (v?.name === name ? { ...v, result } : v))
+    } catch (e: any) {
+      setView((v) => (v?.name === name ? { ...v, error: e.message } : v))
+    }
+  }
+
+  const [nw, setNw] = useState({ name: '', seed: '' })
+  const createWorld = async () => {
+    const name = nw.name.trim().replace(/[^\w.-]+/g, '_')
+    if (!name) return
+    if ((worlds ?? []).some((w) => w.name === name)) return toast({ title: 'A world with that name exists', kind: 'error' })
+    const path = `${srv.dir}/server.properties`
+    const t = await api.fs.readText(srv.hostId, path)
+    await api.fs.writeText(srv.hostId, path, serializeProps(t, { 'level-name': name, 'level-seed': nw.seed.trim() }))
+    toast({ title: `“${name}” is generated on the next start`, body: srv.running ? 'Restart the server to switch to it. The old world is kept.' : 'Start the server to generate it.', kind: 'success' })
+    setNw({ name: '', seed: '' })
+    await reload()
+  }
+
   const reset = async (name: string, del = false) => {
     if (srv.running && name === srv.levelName) return toast({ title: 'Stop the server first', kind: 'error' })
     const ok = await confirm(
@@ -308,6 +338,7 @@ export function WorldsTab() {
                 </div>
               </div>
               <div className="row">
+                <button className="btn" onClick={() => showMap(w.name)}><MapIcon size={11} /> Map & Seed</button>
                 {!active && <button className="btn" onClick={() => setActive(w.name)}><Play size={11} /> Make Active</button>}
                 <button className="btn" onClick={() => api.fs.download(srv.hostId, dims.map((d) => ({ path: `${srv.dir}/${d.name}`, isDir: true })))}><Download size={11} /> Download</button>
                 <button className="btn" onClick={() => reset(w.name)}><RotateCcw size={11} /> Reset</button>
@@ -317,10 +348,17 @@ export function WorldsTab() {
           )
         })}
         <div className="group-row">
-          <span className="muted small">New world generation options (seed, type, structures) are in Settings → server.properties → World.</span>
+          <span className="muted small">More generation options (world type, structures) are in Settings → server.properties → World.</span>
           <button className="btn" onClick={() => setTab('Settings')}>Open</button>
         </div>
       </Section>
+
+      <Section title="New world" help="Creates a new world next to the existing ones (they are kept). Preview opens the seed on an interactive biome and structure map (Chunkbase) in your browser.">
+        <Row label="Name" help="Folder name of the world."><input className="input" style={{ width: 240 }} placeholder="world2" value={nw.name} onChange={(e) => setNw({ ...nw, name: e.target.value })} /></Row>
+        <Row label="Seed" help="Number or text. The same seed always creates the same world. Empty = random."><SeedInput game="minecraft" value={nw.seed} onChange={(v) => setNw({ ...nw, seed: v })} /></Row>
+        <div className="row" style={{ justifyContent: 'flex-end', padding: '8px 0' }}><button className="btn primary" disabled={!nw.name.trim()} onClick={createWorld}><Plus size={12} /> Create on Next Start</button></div>
+      </Section>
+      {view && <WorldMapSheet title={`World map: ${view.name}`} game="minecraft" result={view.result} error={view.error} onClose={() => setView(null)} note="Drawing the map from the region files…" />}
 
       <Section
         title="Game rules"

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Play, Square, RotateCw, Plus, RefreshCw, FolderOpen, Terminal as TermIcon, Copy, Ellipsis, Users, Cpu, Gauge, Send, Wrench,
-  Server as ServerIcon, FolderSearch, TreePine, Globe2, Download, Trash2, Upload, ArrowUpCircle, KeyRound, FileCode, Search,
+  Server as ServerIcon, FolderSearch, TreePine, Globe2, Download, Trash2, Upload, ArrowUpCircle, KeyRound, FileCode, Search, Map as MapIcon,
 } from 'lucide-react'
 import { api, shq } from '../../lib/api'
 import { confirm, ensureConnected, prompt, toast, updateWindow, useStore, Win } from '../../lib/store'
@@ -23,9 +23,13 @@ import { BackupsTab } from '../minecraft/Panels'
 import { PropControl } from '../minecraft/Settings'
 import { DuplicateSheet, duplicateScript, type DuplicateOptions } from '../minecraft/Duplicate'
 import { NewTerrariaServer } from './NewServer'
+import { TrWorldForm } from './WorldOptions'
+import { WebsiteTab, WorldMapSheet } from '../minecraft/Website'
+import { renderWorldMap, type MapResult } from '../../lib/web/site'
+import { defaultWorldOptions, generateWorldScript, worldConfigValues, worldFileName, type TrWorldOptions } from '../../lib/tr/worldgen'
 import { TrContentTab } from './Content'
 
-type Tab = 'Overview' | 'Console' | 'Plugins' | 'Mods' | 'Worlds' | 'Backups' | 'Settings' | 'Help'
+type Tab = 'Overview' | 'Console' | 'Plugins' | 'Mods' | 'Worlds' | 'Backups' | 'Website' | 'Settings' | 'Help'
 type Sel = { hostId: string; dir: string } | { new: true; hostId?: string } | null
 
 /** The Terraria server behind the shared (Minecraft) context type. */
@@ -173,7 +177,7 @@ function ServerView({ srv, hostName, hostAddr, tab, setTab, onDeleted, onSelect 
   const hostServers = useTr((s) => s.servers[srv.hostId] ?? NONE)
   const c = srv.config
   const contentTab: Tab | null = TR_SOFTWARE[c.software].content === 'plugins' ? 'Plugins' : TR_SOFTWARE[c.software].content === 'mods' ? 'Mods' : null
-  const tabs: Tab[] = ['Overview', 'Console', ...(contentTab ? [contentTab] : []), 'Worlds', 'Backups', 'Settings', 'Help']
+  const tabs: Tab[] = ['Overview', 'Console', ...(contentTab ? [contentTab] : []), 'Worlds', 'Backups', ...(srv.managed ? ['Website' as Tab] : []), 'Settings', 'Help']
 
   const reload = async () => { await refreshTrDirs(srv.hostId, [srv.dir]) }
   useEffect(() => {
@@ -246,6 +250,7 @@ function ServerView({ srv, hostName, hostAddr, tab, setTab, onDeleted, onSelect 
       if (srv.running && srv.managed && !srv.external) await ctl(srv.hostId, srv.dir, 'stop', '0')
       else if (srv.running && srv.pid) await run(srv.hostId, `kill ${srv.pid}; sleep 8`)
       await removeCron(srv.hostId, c.id)
+      await run(srv.hostId, `[ -f ${shq(srv.dir + '/.sshos/web/webctl.sh')} ] && sh ${shq(srv.dir + '/.sshos/web/webctl.sh')} stop; true`)
       const r = await run(srv.hostId, `rm -rf -- ${shq(srv.dir)}`, 300000)
       if (r.code !== 0) throw new Error(r.stderr || 'rm failed')
       removeTrDir(srv.hostId, srv.dir)
@@ -264,7 +269,7 @@ function ServerView({ srv, hostName, hostAddr, tab, setTab, onDeleted, onSelect 
     const live = srv.running && srv.managed && !srv.external
     const ctlPath = `${shq(srv.dir)}/.sshos/ctl.sh`
     const excludes = [
-      'logs', 'tshock/logs', '.sshos/server.pid', '.sshos/mux', '.sshos/stdin', '.sshos/stop-requested', '.sshos/console.log', '.sshos/console.prev.log', '.sshos/backup.log',
+      'logs', 'tshock/logs', '.sshos/web', '.sshos/server.pid', '.sshos/mux', '.sshos/stdin', '.sshos/stop-requested', '.sshos/console.log', '.sshos/console.prev.log', '.sshos/backup.log',
       ...(o.includeBackups ? [] : [c.backups.dir && !c.backups.dir.startsWith('/') ? c.backups.dir : 'backups']),
       ...(o.includeWorlds ? [] : [WORLD_DIR, 'data/Worlds']),
     ]
@@ -279,7 +284,7 @@ function ServerView({ srv, hostName, hostAddr, tab, setTab, onDeleted, onSelect 
       await api.fs.writeText(srv.hostId, scPath, serializeServerConfig(sc, { port: String(o.port), world, worldpath: `${o.dir}/${WORLD_DIR}`, autocreate: v.autocreate || '2' }))
       if (srv.managed) {
         const fresh = defaultTrConfig({ name: o.name, software: c.software, version: c.version })
-        await writeTrManagement(srv.hostId, o.dir, { ...c, id: fresh.id, name: o.name, session: fresh.session, createdAt: Date.now() })
+        await writeTrManagement(srv.hostId, o.dir, { ...c, id: fresh.id, name: o.name, session: fresh.session, createdAt: Date.now(), web: undefined })
         if (o.startAfter) await ctl(srv.hostId, o.dir, 'start')
       }
       addTrDir(srv.hostId, o.dir)
@@ -353,6 +358,7 @@ function ServerView({ srv, hostName, hostAddr, tab, setTab, onDeleted, onSelect 
         {(tab === 'Plugins' || tab === 'Mods') && <TrContentTab />}
         {tab === 'Worlds' && <WorldsTab />}
         {tab === 'Backups' && <BackupsTab />}
+        {tab === 'Website' && <WebsiteTab />}
         {tab === 'Settings' && <SettingsTab onDelete={deleteServer} />}
         {tab === 'Help' && <TrHelp />}
       </div>
@@ -528,9 +534,12 @@ ${was ? `sh ${shq(srv.dir)}/.sshos/ctl.sh start` : ''}`)
 // ---------------------------------------------------------------------------
 function WorldsTab() {
   const { srv, task, reload } = useTrCtx()
+  const c = srv.config
   const [worlds, setWorlds] = useState<{ file: string; size: number; time: number }[] | null>(null)
-  const [nw, setNw] = useState({ name: '', size: '2', difficulty: '0', seed: '' })
+  const [nw, setNw] = useState<TrWorldOptions>(defaultWorldOptions(''))
+  const [view, setView] = useState<{ title: string; file: string; result: MapResult | null; error?: string; preview?: boolean } | null>(null)
   const sc = `${srv.dir}/serverconfig.txt`
+  const previewDir = `${srv.dir}/${WORLD_DIR}/.preview`
 
   const load = async () => {
     const r = await run(srv.hostId, `cd ${shq(srv.dir)} && for f in ${WORLD_DIR}/*.wld data/Worlds/*.wld; do [ -f "$f" ] && echo "$f|$(stat -c '%s|%Y' "$f")"; done; true`)
@@ -549,14 +558,65 @@ function WorldsTab() {
     toast({ title: `${file.split('/').pop()} will load on the next start`, body: srv.running ? 'Restart the server to switch worlds.' : undefined, kind: 'success' })
   }
 
-  const create = async () => {
-    const name = nw.name.trim()
+  /** Opens the map viewer; `path` is absolute. Large worlds are drawn at half size in the app. */
+  const showMap = async (title: string, path: string, preview = false, sizeHint?: number) => {
+    setView({ title, file: path, result: null, preview })
+    try {
+      const result = await renderWorldMap(srv.hostId, 'terraria', path, { scale: (sizeHint ?? 0) > 20e6 ? 2 : 1 })
+      setView((v) => (v && v.file === path ? { ...v, result } : v))
+    } catch (e: any) {
+      setView((v) => (v && v.file === path ? { ...v, error: e.message } : v))
+    }
+  }
+
+  const exists = (file: string) => !!worlds?.some((w) => w.file.endsWith(`/${file}`))
+
+  /** Generates a world (preview: into worlds/.preview, then shows its map). */
+  const generate = async (preview: boolean, opts = nw) => {
+    const name = opts.name.trim()
     if (!name) return
-    const file = name.replace(/[^\w -]+/g, '').replace(/\s+/g, '_') || 'World'
-    if (worlds?.some((w) => w.file.endsWith(`/${file}.wld`))) return toast({ title: 'A world with that name exists', kind: 'error' })
-    await setConfig({ world: `${srv.dir}/${WORLD_DIR}/${file}.wld`, autocreate: nw.size, worldname: name, difficulty: nw.difficulty, seed: nw.seed.trim() })
-    toast({ title: `“${name}” is created on the next start`, body: srv.running ? 'Restart the server to generate it (takes a minute).' : 'Start the server to generate it.', kind: 'success' })
-    setNw({ name: '', size: '2', difficulty: '0', seed: '' })
+    const file = worldFileName(name)
+    if (!preview && exists(file)) return toast({ title: 'A world with that name exists', kind: 'error' })
+    const target = preview ? `${previewDir}/${file}` : `${srv.dir}/${WORLD_DIR}/${file}`
+    if (preview) await run(srv.hostId, `rm -rf ${shq(previewDir)}`)
+    const r = await task(preview ? `Previewing “${name}”` : `Creating “${name}”`, generateWorldScript(c.software, srv.dir, target, opts), { quiet: true })
+    if (r.code !== 0) return
+    if (preview) {
+      showMap(`Preview: ${name}`, target, true)
+    } else {
+      await load()
+      if (await confirm(`“${name}” is ready`, srv.running ? 'Make it the active world? The server loads it after a restart.' : 'Make it the active world?', 'Make Active')) {
+        await setConfig({ world: target, ...worldConfigValues(opts) })
+      }
+      setNw(defaultWorldOptions(''))
+    }
+  }
+
+  const keepPreview = async () => {
+    if (!view) return
+    const file = view.file.split('/').pop()!
+    if (exists(file)) return toast({ title: `A world named ${file} already exists`, body: 'Rename the world before previewing, or delete the old one.', kind: 'error' })
+    const r = await run(srv.hostId, `mv -n ${shq(view.file)} ${shq(`${srv.dir}/${WORLD_DIR}/${file}`)} && rm -rf ${shq(previewDir)}`)
+    if (r.code !== 0) return toast({ title: 'Could not keep the world', body: r.stderr, kind: 'error' })
+    setView(null)
+    await load()
+    if (await confirm(`Kept “${nw.name.trim() || file}”`, srv.running ? 'Make it the active world? The server loads it after a restart.' : 'Make it the active world?', 'Make Active')) {
+      await setConfig({ world: `${srv.dir}/${WORLD_DIR}/${file}`, ...worldConfigValues(nw) })
+    }
+    setNw(defaultWorldOptions(''))
+  }
+
+  const discardPreview = async () => {
+    await run(srv.hostId, `rm -rf ${shq(previewDir)}`)
+    setView(null)
+  }
+
+  const anotherSeed = async () => {
+    await run(srv.hostId, `rm -rf ${shq(previewDir)}`)
+    setView(null)
+    const next = { ...nw, secret: '', seed: '' }
+    setNw(next)
+    generate(true, next)
   }
 
   const del = async (file: string) => {
@@ -576,16 +636,18 @@ function WorldsTab() {
       }>
         {worlds === null ? <div className="group-row"><Spinner size={12} /></div> : worlds.length === 0 ? <div className="group-row muted">No world yet. One is generated on the first start.</div> : worlds.map((w) => {
           const active = srv.world === `${srv.dir}/${w.file}` || srv.world.endsWith('/' + w.file)
+          const label = w.file.split('/').pop()?.replace(/\.wld$/, '') ?? w.file
           return (
             <div key={w.file} className="group-row">
               <div className="row">
                 <Globe2 size={18} style={{ color: active ? 'var(--green)' : 'var(--text-3)' }} />
                 <div>
-                  <div className="row" style={{ gap: 6 }}><b>{w.file.split('/').pop()?.replace(/\.wld$/, '')}</b>{active && <span className="badge" style={{ color: 'var(--green)' }}>Active</span>}</div>
+                  <div className="row" style={{ gap: 6 }}><b>{label}</b>{active && <span className="badge" style={{ color: 'var(--green)' }}>Active</span>}</div>
                   <div className="small muted">{formatBytes(w.size)} · saved {new Date(w.time).toLocaleString()}</div>
                 </div>
               </div>
               <div className="row">
+                <button className="btn" onClick={() => showMap(label, `${srv.dir}/${w.file}`, false, w.size)}><MapIcon size={11} /> Map & Seed</button>
                 {!active && <button className="btn" onClick={() => activate(w.file)}><Play size={11} /> Make Active</button>}
                 <button className="btn" onClick={() => api.fs.download(srv.hostId, [{ path: `${srv.dir}/${w.file}`, isDir: false }])}><Download size={11} /> Download</button>
                 {!active && <button className="tb-btn" title="Delete" onClick={() => del(w.file)}><Trash2 size={13} /></button>}
@@ -594,17 +656,30 @@ function WorldsTab() {
           )
         })}
       </Section>
-      <Section title="New world" help="Sets the world in serverconfig.txt; the server generates it on its next start.">
-        <Row label="Name"><input className="input" style={{ width: 240 }} placeholder="My World" value={nw.name} onChange={(e) => setNw({ ...nw, name: e.target.value })} /></Row>
-        <Row label="Size" help="Small fits ~1–4 players, Medium ~4–8, Large 8+.">
-          <select className="select" style={{ width: 160 }} value={nw.size} onChange={(e) => setNw({ ...nw, size: e.target.value })}><option value="1">Small</option><option value="2">Medium</option><option value="3">Large</option></select>
-        </Row>
-        <Row label="Difficulty">
-          <select className="select" style={{ width: 160 }} value={nw.difficulty} onChange={(e) => setNw({ ...nw, difficulty: e.target.value })}><option value="0">Classic</option><option value="1">Expert</option><option value="2">Master</option><option value="3">Journey</option></select>
-        </Row>
-        <Row label="Seed" help="Leave empty for random. Secret seeds work (e.g. “for the worthy”)."><input className="input" style={{ width: 240 }} value={nw.seed} onChange={(e) => setNw({ ...nw, seed: e.target.value })} /></Row>
-        <div className="row" style={{ justifyContent: 'flex-end', padding: '8px 0' }}><button className="btn primary" disabled={!nw.name.trim()} onClick={create}><Plus size={12} /> Create on Next Start</button></div>
+      <Section title="New world" help="Generated on the server right away, without stopping the running server. Preview shows the map first so you can try seeds before keeping one.">
+        <TrWorldForm value={nw} onChange={setNw} software={c.software} />
+        <div className="row" style={{ justifyContent: 'flex-end', padding: '8px 0', gap: 8 }}>
+          <button className="btn" disabled={!nw.name.trim()} onClick={() => generate(true)}><MapIcon size={12} /> Preview</button>
+          <button className="btn primary" disabled={!nw.name.trim()} onClick={() => generate(false)}><Plus size={12} /> Create World</button>
+        </div>
       </Section>
+      {view && (
+        <WorldMapSheet
+          title={view.title}
+          game="terraria"
+          result={view.result}
+          error={view.error}
+          note={view.preview ? 'Drawing the preview…' : 'Reading the world…'}
+          onClose={view.preview ? discardPreview : () => setView(null)}
+          actions={view.preview && view.result ? (
+            <>
+              <button className="btn" onClick={discardPreview}>Discard</button>
+              <button className="btn" onClick={anotherSeed}><RefreshCw size={12} /> Try Another Seed</button>
+              <button className="btn primary" onClick={keepPreview}><Plus size={12} /> Keep This World</button>
+            </>
+          ) : undefined}
+        />
+      )}
     </div>
   )
 }

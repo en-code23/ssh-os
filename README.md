@@ -81,6 +81,17 @@ Always in the Dock by default (can be set to "When detected" or "Never" under Sy
 - **tModLoader mods:** search the Steam Workshop, then install, update and enable or disable mods (via SteamCMD, installed automatically; x86_64 only). Mods not made for the current tModLoader are flagged.
 - On first start, the overview shows the TShock admin setup code.
 
+## Server website and world maps
+
+Every Minecraft and Terraria server can have its own private website, created in the setup wizard or in the server's **Website** tab.
+
+- **Two passwords.** The player password shows status, who is online, world details and a zoomable map. The admin password also shows characters and inventories (TShock server-side characters, Minecraft player data and statistics), the seed and the console log.
+- **HTTPS** with a self-signed certificate made on the server; the app shows its fingerprint. Passwords are stored only as PBKDF2 hashes. The site is read-only and limits login attempts.
+- Starts with the server, on boot and is restarted if it stops. It needs Python 3 and OpenSSL on the server, both preinstalled on most Linux systems. The default port is the game port + 1000; open it in your firewall to reach the site from outside.
+- **World maps** are drawn from the real world files: Terraria shows the whole world, with spawn, dungeon and town NPCs marked. Minecraft shows the explored area around spawn with biome colors. Both appear in the app (**Worlds → Map & Seed**) and on the website.
+- **Seeds:** see and copy each world's seed. Minecraft seeds open on an interactive biome and structure map (Chunkbase).
+- **Terraria worlds** offer every in-game option: size, difficulty (Journey, Classic, Expert, Master), world evil (Corruption or Crimson; TShock), every secret seed and a custom seed. **Preview** generates the world on the server without stopping it, shows the map and lets you keep it or try another seed.
+
 ## Codex
 
 The Codex app installs OpenAI's Codex CLI on any SSH server (`~/.local/bin`, no sudo, checksum-verified) and keeps it updated. You can sign in with ChatGPT (device code) or an API key. Then open Codex in any folder in a Terminal tab, choosing how much it may do on its own. In Finder, folders have an "Open Codex Here" item.

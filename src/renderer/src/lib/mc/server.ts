@@ -51,6 +51,8 @@ export interface McConfig {
   backups: { schedule: Schedule; keep: number; scope: 'worlds' | 'full'; dir: string }
   content: Record<string, ContentRecord>
   createdAt: number
+  /** server website (SSH OS 2.2+) */
+  web?: import('../web/site').WebSettings
 }
 
 export interface McServer {
@@ -301,6 +303,8 @@ start() {
   esac
   i=0; while [ $i -lt 20 ]; do running && break; sleep 0.5; i=$((i+1)); done
   if running; then echo "Started (PID $(cat $PIDF), $M)"; else echo "Failed to start. See .sshos/console.log:"; tail -n 20 .sshos/console.log 2>/dev/null; return 1; fi
+  # the server website (if set up) starts together with the server
+  [ -f .sshos/web/webctl.sh ] && [ ! -f .sshos/web/disabled ] && (sh .sshos/web/webctl.sh ensure >/dev/null 2>&1 &)
 }
 stop() {
   touch .sshos/stop-requested
@@ -686,6 +690,11 @@ export async function syncCron(hostId: string, dir: string, c: McConfig) {
   if (b) lines.push(`${b} sh ${d}/.sshos/backup.sh >> ${d}/.sshos/backup.log 2>&1 ${tag}`)
   const r = cronExpr(c.restartSchedule)
   if (r) lines.push(`${r} [ "$(sh ${d}/.sshos/ctl.sh status | cut -c1-7)" = running ] && sh ${d}/.sshos/ctl.sh restart 60 >/dev/null 2>&1 ${tag}`)
+  if (c.web?.enabled) {
+    // website: start on boot and restart within 5 minutes if it ever stops
+    lines.push(`@reboot sleep 30 && sh ${d}/.sshos/web/webctl.sh ensure >/dev/null 2>&1 ${tag}`)
+    lines.push(`*/5 * * * * sh ${d}/.sshos/web/webctl.sh ensure >/dev/null 2>&1 ${tag}`)
+  }
   const script = `
 command -v crontab >/dev/null 2>&1 || { echo "NO_CRON"; exit 0; }
 ( crontab -l 2>/dev/null | grep -vF ${shq(tag)} ; ${lines.map((l) => `printf '%s\\n' ${shq(l)}`).join(' ; ') || 'true'} ) | crontab -

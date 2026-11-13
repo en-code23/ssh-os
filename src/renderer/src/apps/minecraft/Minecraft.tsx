@@ -18,8 +18,9 @@ import { NewServer } from './NewServer'
 import { ContentTab } from './Content'
 import { SettingsTab } from './Settings'
 import { PlayersTab, WorldsTab, BackupsTab, UpdatesTab, HelpTab } from './Panels'
+import { WebsiteTab } from './Website'
 
-const TABS = ['Overview', 'Console', 'Players', 'Content', 'Worlds', 'Backups', 'Updates', 'Settings', 'Help'] as const
+const TABS = ['Overview', 'Console', 'Players', 'Content', 'Worlds', 'Backups', 'Updates', 'Website', 'Settings', 'Help'] as const
 type Tab = (typeof TABS)[number]
 
 type Sel = { hostId: string; dir: string } | { new: true; hostId?: string } | null
@@ -276,6 +277,7 @@ function ServerView({ srv, hostName, tab, setTab, onDeleted, onSelect }: { srv: 
       if (srv.running && !srv.external && srv.managed) await ctl(srv.hostId, srv.dir, 'stop', '0')
       else if (srv.running && srv.pid) await run(srv.hostId, `kill ${srv.pid}; sleep 10`)
       await removeCron(srv.hostId, c.id)
+      await run(srv.hostId, `[ -f ${shq(srv.dir + '/.sshos/web/webctl.sh')} ] && sh ${shq(srv.dir + '/.sshos/web/webctl.sh')} stop; true`)
       const r = await run(srv.hostId, `rm -rf -- ${shq(srv.dir)}`, 300000)
       if (r.code !== 0) throw new Error(r.stderr || 'rm failed')
       removeExtraDir(srv.hostId, srv.dir)
@@ -295,7 +297,7 @@ function ServerView({ srv, hostName, tab, setTab, onDeleted, onSelect }: { srv: 
     const ctlPath = `${shq(srv.dir)}/.sshos/ctl.sh`
     const level = srv.levelName
     const excludes = [
-      'logs', 'cache', 'crash-reports', '.sshos/server.pid', '.sshos/mux', '.sshos/stdin', '.sshos/stop-requested', '.sshos/console.log', '.sshos/console.prev.log',
+      'logs', 'cache', 'crash-reports', '.sshos/web', '.sshos/server.pid', '.sshos/mux', '.sshos/stdin', '.sshos/stop-requested', '.sshos/console.log', '.sshos/console.prev.log',
       '.sshos/old-jars', '.sshos/old-content', '.sshos/update.log', '.sshos/backup.log', 'session.lock', '*/session.lock',
       ...(o.includeBackups ? [] : [srv.config.backups.dir && !srv.config.backups.dir.startsWith('/') ? srv.config.backups.dir : 'backups']),
       ...(o.includeWorlds ? [] : [level, `${level}_nether`, `${level}_the_end`]),
@@ -313,7 +315,7 @@ function ServerView({ srv, hostName, tab, setTab, onDeleted, onSelect }: { srv: 
       if (srv.managed) {
         const old = JSON.parse(await api.fs.readText(srv.hostId, `${o.dir}/${MC_DIR}/mc.json`))
         const fresh = defaultConfig({ name: o.name, software: old.software, mcVersion: old.mcVersion, jar: old.jar })
-        await writeManagement(srv.hostId, o.dir, { ...old, id: fresh.id, name: o.name, session: fresh.session, createdAt: Date.now() })
+        await writeManagement(srv.hostId, o.dir, { ...old, id: fresh.id, name: o.name, session: fresh.session, createdAt: Date.now(), web: undefined })
         if (o.startAfter) await ctl(srv.hostId, o.dir, 'start')
       }
       addExtraDir(srv.hostId, o.dir)
@@ -398,7 +400,7 @@ function ServerView({ srv, hostName, tab, setTab, onDeleted, onSelect }: { srv: 
       )}
 
       <div className="mc-tabs">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t !== 'Website' || srv.managed).map((t) => (
           <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>
         ))}
       </div>
@@ -409,6 +411,7 @@ function ServerView({ srv, hostName, tab, setTab, onDeleted, onSelect }: { srv: 
         {tab === 'Content' && <ContentTab />}
         {tab === 'Worlds' && <WorldsTab />}
         {tab === 'Backups' && <BackupsTab />}
+        {tab === 'Website' && <WebsiteTab />}
         {tab === 'Updates' && <UpdatesTab />}
         {tab === 'Settings' && <SettingsTab onDelete={deleteServer} />}
         {tab === 'Help' && <HelpTab />}

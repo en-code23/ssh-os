@@ -12,6 +12,7 @@ import { Spinner, Switch } from '../../components/ui'
 import { Row, ScheduleEditor, Section, useTaskRunner } from './common'
 import { McIcon } from './Minecraft'
 import { PropControl } from './Settings'
+import { SeedInput, WebsiteFields, setupWebsite, websiteFormValid, type WebsiteForm } from './Website'
 
 const STEPS = ['Basics', 'Software', 'Players', 'Gameplay', 'Performance', 'Automation'] as const
 
@@ -56,6 +57,7 @@ export function NewServer({ hostId: initialHost, onCancel, onCreated }: { hostId
   const [startNow, setStartNow] = useState(true)
   const [eula, setEula] = useState(false)
   const [portBusy, setPortBusy] = useState(false)
+  const [web, setWeb] = useState<WebsiteForm>({ enabled: true, port: 26565, player: '', admin: '' })
   const [players, setPlayers] = useState(5)
 
   // defaults that depend on the host
@@ -69,6 +71,7 @@ export function NewServer({ hostId: initialHost, onCancel, onCreated }: { hostId
     let p = 25565
     while (used.includes(p)) p++
     setProps((x) => ({ ...x, 'server-port': String(p) }))
+    setWeb((w) => ({ ...w, port: p + 1000 }))
   }, [hostId]) // eslint-disable-line
 
   useEffect(() => {
@@ -131,7 +134,7 @@ export function NewServer({ hostId: initialHost, onCancel, onCreated }: { hostId
     players >= 1,
     true,
     xmx >= 512,
-    eula,
+    eula && websiteFormValid(web),
   ]
 
   const create = async () => {
@@ -197,6 +200,12 @@ echo "Downloaded $(du -h ${shq(dl.fileName)} | cut -f1)"`
       })
       await writeManagement(hostId, dir, cfg)
       addExtraDir(hostId, dir)
+      try {
+        const webCfg = await setupWebsite(hostId, dir, 'minecraft', name.trim(), web)
+        if (webCfg) await writeManagement(hostId, dir, { ...cfg, web: webCfg })
+      } catch (e: any) {
+        toast({ title: 'Server created, but the website could not start', body: e.message, kind: 'error' })
+      }
       if (startNow) {
         const s = await ctl(hostId, dir, 'start')
         if (s.code !== 0) toast({ title: 'Server created, but it did not start', body: (s.stdout + s.stderr).slice(-300), kind: 'error' })
@@ -343,7 +352,12 @@ echo "Downloaded $(du -h ${shq(dl.fileName)} | cut -f1)"`
             <Section title="Server">{['motd', 'max-players', 'server-port'].map(propRow)}</Section>
             {portBusy && <div className="card small" style={{ color: 'var(--orange)', marginTop: -10, marginBottom: 14 }}>Port {props['server-port']} is already in use on this machine. Pick another port.</div>}
             <Section title="Gameplay">{['gamemode', 'difficulty', 'hardcore', 'pvp', 'allow-flight', 'spawn-protection', 'enable-command-block'].map(propRow)}</Section>
-            <Section title="World">{['level-seed', 'level-type'].map(propRow)}</Section>
+            <Section title="World">
+              <Row label="Seed" help="Number or text. The same seed always creates the same world. Empty = random. Preview opens the seed on an interactive biome and structure map (Chunkbase).">
+                <SeedInput game="minecraft" value={props['level-seed'] ?? ''} onChange={(v) => setProps((x) => ({ ...x, 'level-seed': v }))} />
+              </Row>
+              {['level-type'].map(propRow)}
+            </Section>
             <Section title="Access">
               {['online-mode', 'white-list'].map(propRow)}
               <Row label="Make me operator" help="Your Minecraft username. You get full admin rights (op level 4) and are added to the whitelist if it is enabled.">
@@ -417,6 +431,7 @@ echo "Downloaded $(du -h ${shq(dl.fileName)} | cut -f1)"`
                 <input className="input" type="number" min={1} max={200} style={{ width: 70 }} value={bakKeep} onChange={(e) => setBakKeep(+e.target.value || 1)} /> backups
               </Row>
             </Section>
+            <WebsiteFields form={web} onChange={setWeb} gamePort={+props['server-port'] || 25565} />
             <Section title="Finish">
               <Row label="Start the server when done"><Switch on={startNow} onChange={setStartNow} /></Row>
               <Row

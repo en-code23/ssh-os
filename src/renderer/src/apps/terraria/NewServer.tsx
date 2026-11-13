@@ -10,6 +10,9 @@ import { ctl, Schedule } from '../../lib/mc/server'
 import { Spinner, Switch } from '../../components/ui'
 import { Row, ScheduleEditor, Section, useTaskRunner } from '../minecraft/common'
 import { TrIcon } from './Terraria'
+import { TrWorldForm } from './WorldOptions'
+import { WebsiteFields, setupWebsite, websiteFormValid, type WebsiteForm } from '../minecraft/Website'
+import { defaultWorldOptions, generateWorldScript, worldConfigValues, worldFileName, type TrWorldOptions } from '../../lib/tr/worldgen'
 
 const STEPS = ['Basics', 'Software', 'Players', 'World', 'Automation'] as const
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'server'
@@ -31,10 +34,8 @@ export function NewTerrariaServer({ hostId: initialHost, onCancel, onCreated }: 
   const [software, setSoftware] = useState<TrSoftware>('tshock')
   const [release, setRelease] = useState<TrRelease | null | 'error'>(null)
   const [players, setPlayers] = useState(8)
-  const [worldName, setWorldName] = useState('My World')
-  const [size, setSize] = useState('2')
-  const [difficulty, setDifficulty] = useState('0')
-  const [seed, setSeed] = useState('')
+  const [world, setWorld] = useState<TrWorldOptions>(defaultWorldOptions('My World'))
+  const [web, setWeb] = useState<WebsiteForm>({ enabled: true, port: 8777, player: '', admin: '' })
   const [password, setPassword] = useState('')
   const [motd, setMotd] = useState('')
   const [port, setPort] = useState(7777)
@@ -54,10 +55,11 @@ export function NewTerrariaServer({ hostId: initialHost, onCancel, onCreated }: 
     let p = 7777
     while (used.includes(p)) p++
     setPort(p)
+    setWeb((w) => ({ ...w, port: p + 1000 }))
   }, [hostId]) // eslint-disable-line
 
   useEffect(() => { if (!dirTouched) setDir(`${home}/terraria/${slug(name)}`) }, [name, home, dirTouched])
-  useEffect(() => { setWorldName(name) }, [name])
+  useEffect(() => { setWorld((w) => ({ ...w, name })) }, [name])
 
   useEffect(() => {
     if (!sys) return
@@ -67,11 +69,11 @@ export function NewTerrariaServer({ hostId: initialHost, onCancel, onCreated }: 
   }, [software, sys])
 
   const tuning = useMemo(() => (sys ? tuneTr(players, software, sys.memMb, sys.cpus) : null), [players, software, sys])
-  useEffect(() => { if (tuning) setSize(tuning.worldSize) }, [tuning])
+  useEffect(() => { if (tuning) setWorld((w) => ({ ...w, size: tuning.worldSize as TrWorldOptions['size'] })) }, [tuning])
 
   const support = sys ? supportOn(software, sys.arch) : { ok: true }
   const exists = !!hostId && (tr[hostId] ?? []).some((s) => s.dir === dir)
-  const valid = [!!hostId && !!name.trim() && dir.startsWith('/') && !exists, support.ok && !!release && release !== 'error', players >= 1 && players <= 255, !!worldName.trim(), true]
+  const valid = [!!hostId && !!name.trim() && dir.startsWith('/') && !exists, support.ok && !!release && release !== 'error', players >= 1 && players <= 255, !!world.name.trim(), websiteFormValid(web)]
 
   const create = async () => {
     if (!hostId || !release || release === 'error') return
@@ -79,13 +81,10 @@ export function NewTerrariaServer({ hostId: initialHost, onCancel, onCreated }: 
       const pre = `D=${shq(dir)}; if [ -d "$D" ] && [ -n "$(ls -A "$D" 2>/dev/null)" ]; then echo "Folder $D already exists and is not empty"; exit 3; fi`
       const r = await runner.run(`Creating ${name}`, `${pre}\n${installScript(software, release, dir)}`)
       if (r.code !== 0) return
-      const worldFile = (worldName.replace(/[^\w -]+/g, '').replace(/\s+/g, '_') || 'World') + '.wld'
+      const worldPath = `${dir}/${WORLD_DIR}/${worldFileName(world.name)}`
       const sc = serializeServerConfig(`# Terraria server config, created by SSH OS ${new Date().toISOString()}\n`, {
-        world: `${dir}/${WORLD_DIR}/${worldFile}`,
-        autocreate: size,
-        worldname: worldName.trim(),
-        difficulty,
-        seed: seed.trim(),
+        world: worldPath,
+        ...worldConfigValues(world),
         worldpath: `${dir}/${WORLD_DIR}`,
         maxplayers: String(players),
         port: String(port),
@@ -103,12 +102,22 @@ export function NewTerrariaServer({ hostId: initialHost, onCancel, onCreated }: 
       })
       await writeTrManagement(hostId, dir, cfg)
       addTrDir(hostId, dir)
+      // generate the world now (all options incl. the evil biome); if that fails the server
+      // still creates it from serverconfig.txt on its first start
+      const g = await runner.run(`Generating “${world.name.trim()}”`, generateWorldScript(software, dir, worldPath, world), { quiet: true })
+      if (g.code !== 0) toast({ title: 'The world will be generated on the first start instead', kind: 'info' })
+      try {
+        const webCfg = await setupWebsite(hostId, dir, 'terraria', name.trim(), web)
+        if (webCfg) await writeTrManagement(hostId, dir, { ...cfg, web: webCfg })
+      } catch (e: any) {
+        toast({ title: 'Server created, but the website could not start', body: e.message, kind: 'error' })
+      }
       if (startNow) {
         const s = await ctl(hostId, dir, 'start')
         if (s.code !== 0) toast({ title: 'Server created, but it did not start', body: (s.stdout + s.stderr).slice(-300), kind: 'error' })
       }
       await scanTrHost(hostId)
-      toast({ title: `${name} is ready`, body: startNow ? 'The first start generates the world; this takes a minute or two.' : 'Press Start when you are ready.', kind: 'success' })
+      toast({ title: `${name} is ready`, body: startNow ? 'The server is starting.' : 'Press Start when you are ready.', kind: 'success' })
       onCreated(hostId, dir)
     } catch (e: any) {
       toast({ title: 'Could not create the server', body: e.message, kind: 'error' })
@@ -199,18 +208,11 @@ export function NewTerrariaServer({ hostId: initialHost, onCancel, onCreated }: 
         {step === 3 && (
           <>
             <h2 className="wiz-h">World</h2>
-            <Section title="New world" help="Generated on the first start (takes a minute or two).">
-              <Row label="World name"><input className="input" style={{ width: 240 }} value={worldName} onChange={(e) => setWorldName(e.target.value)} /></Row>
-              <Row label="Size" help="Recommended from the player count; Large worlds use more memory.">
-                <select className="select" style={{ width: 160 }} value={size} onChange={(e) => setSize(e.target.value)}><option value="1">Small</option><option value="2">Medium</option><option value="3">Large</option></select>
-              </Row>
-              <Row label="Difficulty">
-                <select className="select" style={{ width: 160 }} value={difficulty} onChange={(e) => setDifficulty(e.target.value)}><option value="0">Classic</option><option value="1">Expert</option><option value="2">Master</option><option value="3">Journey</option></select>
-              </Row>
-              <Row label="Seed" help="Empty = random. Secret seeds work too."><input className="input" style={{ width: 240 }} value={seed} onChange={(e) => setSeed(e.target.value)} /></Row>
+            <Section title="New world" help="Generated on the server while it is being set up. You can preview more seeds later in the Worlds tab.">
+              <TrWorldForm value={world} onChange={setWorld} software={software} />
             </Section>
             <Section title="Access">
-              <Row label="Password" help="Players must enter it to join. Empty = open server."><input className="input" type="password" style={{ width: 200 }} value={password} onChange={(e) => setPassword(e.target.value)} /></Row>
+              <Row label="Password" help="Players must enter it to join. Empty = open server. Also used as the website's player password unless you choose another one."><input className="input" type="password" style={{ width: 200 }} value={password} onChange={(e) => { const v = e.target.value; setWeb((w) => (w.player === password ? { ...w, player: v } : w)); setPassword(v) }} /></Row>
               <Row label="Message of the day"><input className="input" style={{ width: 300 }} value={motd} onChange={(e) => setMotd(e.target.value)} /></Row>
               <Row label="Port" help="Default 7777. Each server on the machine needs its own port."><input className="input" type="number" style={{ width: 100 }} value={port} onChange={(e) => setPort(+e.target.value || 7777)} /></Row>
             </Section>
@@ -225,6 +227,7 @@ export function NewTerrariaServer({ hostId: initialHost, onCancel, onCreated }: 
               <Row label="Restart automatically after a crash"><Switch on={crash} onChange={setCrash} /></Row>
             </Section>
             <Section title="Backups"><Row label="Back up worlds"><ScheduleEditor value={bak} onChange={setBak} /></Row></Section>
+            <WebsiteFields form={web} onChange={setWeb} gamePort={port} />
             <Section title="Finish"><Row label="Start the server when done"><Switch on={startNow} onChange={setStartNow} /></Row></Section>
           </>
         )}
