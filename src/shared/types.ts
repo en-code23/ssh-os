@@ -20,6 +20,8 @@ export interface ServerConfig {
   defaultPath?: string
   /** FTPS: accept self-signed / untrusted certificates */
   allowUntrusted?: boolean
+  /** Connect automatically when SSH OS starts */
+  autoConnect?: boolean
   createdAt: number
   lastConnectedAt?: number
 }

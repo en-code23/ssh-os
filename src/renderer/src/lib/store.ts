@@ -339,6 +339,18 @@ export async function init() {
       toast({ title: t.kind === 'upload' ? 'Upload complete' : 'Copy complete', body: t.name, kind: 'success' })
     if (t.status === 'error' && t.error !== 'Cancelled') toast({ title: `Transfer failed: ${t.name}`, body: t.error, kind: 'error' })
   })
+  autoConnectAll()
+}
+
+/** Connects the servers marked "Connect when SSH OS starts", one after another
+ *  (so password prompts and host-key questions never overlap). */
+async function autoConnectAll() {
+  const list = get().servers.filter((s) => s.autoConnect && !isConnected(s.id))
+  const firstActive = get().activeServerId
+  for (const s of list) await ensureConnected(s.id).catch(() => false)
+  // keep the first auto-connected server active (ensureConnected makes the last one active)
+  const first = list.find((s) => isConnected(s.id))
+  if (first && !firstActive) set({ activeServerId: first.id })
 }
 
 export async function updateSettings(p: Partial<Settings>) {

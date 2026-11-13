@@ -77,6 +77,14 @@ export function Servers({ win }: { win: Win }) {
         : []),
       { separator: true },
       {
+        label: 'Connect at Startup',
+        checked: !!s.autoConnect,
+        onClick: async () => {
+          await api.servers.save({ ...s, autoConnect: !s.autoConnect })
+          await refreshServers()
+        },
+      },
+      {
         label: 'Duplicate',
         onClick: async () => {
           const { id, ...rest } = s
@@ -323,6 +331,13 @@ function ServerForm({ server, onSaved, onDelete }: { server: ServerConfig | null
           </label>
         </div>
       )}
+      <div className="form-row">
+        <label />
+        <label className="row" style={{ textAlign: 'left', color: 'var(--text)' }}>
+          <input type="checkbox" checked={!!f.autoConnect} onChange={(e) => set({ autoConnect: e.target.checked })} />
+          Connect automatically when SSH OS starts
+        </label>
+      </div>
       <div className="form-row">
         <label>Start Folder</label>
         <input className="input mono" placeholder="Home folder" value={f.defaultPath ?? ''} onChange={(e) => set({ defaultPath: e.target.value })} />

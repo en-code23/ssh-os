@@ -17,6 +17,7 @@ It started as a rewrite of [cube-ssh](https://github.com/Mhyar-nsi/cube-ssh).
 - **Network Utility** — interface info, ping, traceroute, port scan, DNS lookup and HTTP timing, all run *from* the server.
 - **Shortcuts** — one-click saved commands, either global or per server; run inline or in a Terminal.
 - **System Settings** — light/dark/auto appearance, accent color, wallpapers, Dock size and magnification, terminal font and theme.
+- **Connect at startup:** mark servers to connect automatically when SSH OS opens (in the server's settings or its right-click menu).
 
 ## Develop
 
