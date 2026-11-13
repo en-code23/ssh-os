@@ -478,12 +478,16 @@ class Handler(BaseHTTPRequestHandler):
                     cnt, until = 0, 0
                 if now - GLOBAL["t"] >= 1:
                     GLOBAL.update(t=now, n=0)
-                GLOBAL["n"] += 1
                 if until > now:
                     busy = "Too many attempts. Try again in %d s." % int(until - now + 1)
-                elif INFLIGHT.get(ip, 0) >= 2 or GLOBAL["n"] > 20:
+                elif INFLIGHT.get(ip, 0) >= 2:
                     busy = "Too many attempts at once. Try again in a moment."
+                elif GLOBAL["n"] >= 20:
+                    # CPU guard for password hashing; only attempts that pass the per-IP
+                    # checks count here, so a locked-out client can't use up the budget
+                    busy = "The server is busy. Try again in a moment."
                 else:
+                    GLOBAL["n"] += 1
                     # count the attempt as failed *before* checking, so parallel requests
                     # can't slip past the limit; a correct password clears it again
                     cnt += 1
