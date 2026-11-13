@@ -45,7 +45,9 @@ def load_cfg():
 CFG = load_cfg()
 GAME = CFG.get("game", "minecraft")
 SESSIONS = {}  # token -> (role, expires)
-FAILS = {}  # ip -> (count, locked_until)
+FAILS = {}  # ip -> (count, locked_until, last_failure)
+INFLIGHT = {}  # ip -> login checks running right now
+GLOBAL = {"t": 0.0, "n": 0}  # login attempts in the current second (all clients)
 LOCK = threading.Lock()
 
 
@@ -455,7 +457,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        n = min(int(self.headers.get("Content-Length", "0") or 0), 4096)
+        try:
+            n = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            return self._send(400, {"error": "bad request"})
+        if n < 0 or n > 4096:
+            return self._send(400 if n < 0 else 413, {"error": "bad request"})
         body = parse_qs(self.rfile.read(n).decode("utf-8", "replace"))
         # same-origin check for every form post
         origin = self.headers.get("Origin")
@@ -463,18 +470,36 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, {"error": "bad origin"})
         if path == "/login":
             ip = self.client_address[0]
+            now = time.time()
+            busy = None
             with LOCK:
                 cnt, until, last = FAILS.get(ip, (0, 0, 0))
-                if time.time() - last > 900:  # forget old failures after 15 quiet minutes
+                if now - last > 900:  # forget old failures after 15 quiet minutes
                     cnt, until = 0, 0
-            if until > time.time():
-                return self._send(429, {"error": "Too many attempts. Try again in %d s." % int(until - time.time())})
-            pw = (body.get("password") or [""])[0]
-            role = "admin" if check_password(pw, CFG.get("admin")) else "player" if check_password(pw, CFG.get("player")) else None
-            if not role:
-                cnt += 1
+                if now - GLOBAL["t"] >= 1:
+                    GLOBAL.update(t=now, n=0)
+                GLOBAL["n"] += 1
+                if until > now:
+                    busy = "Too many attempts. Try again in %d s." % int(until - now + 1)
+                elif INFLIGHT.get(ip, 0) >= 2 or GLOBAL["n"] > 20:
+                    busy = "Too many attempts at once. Try again in a moment."
+                else:
+                    # count the attempt as failed *before* checking, so parallel requests
+                    # can't slip past the limit; a correct password clears it again
+                    cnt += 1
+                    FAILS[ip] = (cnt, now + (min(300, 2 ** (cnt - 4)) if cnt >= 5 else 0), now)
+                    INFLIGHT[ip] = INFLIGHT.get(ip, 0) + 1
+            if busy:
+                return self._send(429, {"error": busy})
+            try:
+                pw = (body.get("password") or [""])[0]
+                role = "admin" if check_password(pw, CFG.get("admin")) else "player" if check_password(pw, CFG.get("player")) else None
+            finally:
                 with LOCK:
-                    FAILS[ip] = (cnt, time.time() + (min(300, 2 ** (cnt - 4)) if cnt >= 5 else 0), time.time())
+                    INFLIGHT[ip] = INFLIGHT.get(ip, 1) - 1
+                    if INFLIGHT[ip] <= 0:
+                        INFLIGHT.pop(ip, None)
+            if not role:
                 time.sleep(0.8)
                 return self._send(403, {"error": "Wrong password"})
             with LOCK:
@@ -610,6 +635,7 @@ def main():
 
     class Server(ThreadingHTTPServer):
         daemon_threads = True
+        request_queue_size = 128  # default 5 resets connections when several players load the page at once
 
         def get_request(self):
             sock, addr = self.socket.accept()
