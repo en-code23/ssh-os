@@ -69,7 +69,7 @@ Everything SSH OS adds lives in `<server>/.sshos/`. The scripts are plain `sh` a
 
 ## Terraria Servers app
 
-Appears in the Dock when a Terraria server is found on a connected machine (or always/never, under System Settings → Desktop & Dock).
+Always in the Dock by default (can be set to "When detected" or "Never" under System Settings → Desktop & Dock).
 
 - **TShock** (recommended; x86_64 and ARM), **tModLoader** and the **official server** (x86_64). The newest release is installed and verified, and TShock's .NET runtime is installed into `~/.sshos/dotnet` without sudo.
 - **Sized for your players:** player presets set the player limit, world size and network settings, with memory warnings.
