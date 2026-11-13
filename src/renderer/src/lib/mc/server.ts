@@ -110,7 +110,7 @@ export async function run(hostId: string, script: string, timeout = 60000) {
 // ------------------------------------------------------------------
 const DETECT = `
 for d in "$HOME" /opt /srv /home /var/games /mnt /data; do
-  [ -d "$d" ] && find "$d" -maxdepth 4 -name server.properties -not -path '*/.*/*' -not -path '*/backups/*' 2>/dev/null
+  [ -d "$d" ] && find "$d" -maxdepth 4 -type f -user "$(id -u)" -name server.properties -not -path '*/.*/*' -not -path '*/backups/*' 2>/dev/null
 done | sed 's#/server.properties$##' | sort -u | head -40
 `
 
@@ -122,6 +122,7 @@ export async function detectDirs(hostId: string): Promise<string[]> {
 const INSPECT = (dirs: string[]) => `
 for d in ${dirs.map(shq).join(' ')}; do
   [ -d "$d" ] || continue  # folder removed outside SSH OS
+  [ -O "$d" ] || continue  # only folders owned by this user (never run another user's scripts)
   echo "@@DIR $d"
   ls -1 "$d" 2>/dev/null | head -200
   echo "@@CFG"; cat "$d/${MC_DIR}/mc.json" 2>/dev/null

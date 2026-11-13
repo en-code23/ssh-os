@@ -263,7 +263,7 @@ export async function saveTrConfig(hostId: string, dir: string, c: TrConfig) {
 // ------------------------------------------------------------------ detection
 const DETECT = `
 for d in "$HOME" /opt /srv /home /var/games /mnt /data; do
-  [ -d "$d" ] && find "$d" -maxdepth 4 -type f \\( -name TShock.Server -o -name start-tModLoaderServer.sh -o -name TerrariaServer.bin.x86_64 -o -name ${TR_FILE} \\) -not -path '*/backups/*' -not -path '*/steamapps/*' -not -path '*/.net/*' -not -path '*/.sshos/dotnet/*' -not -path '*/.local/*' 2>/dev/null
+  [ -d "$d" ] && find "$d" -maxdepth 4 -type f -user "$(id -u)" \\( -name TShock.Server -o -name start-tModLoaderServer.sh -o -name TerrariaServer.bin.x86_64 -o -name ${TR_FILE} \\) -not -path '*/backups/*' -not -path '*/steamapps/*' -not -path '*/.net/*' -not -path '*/.sshos/dotnet/*' -not -path '*/.local/*' 2>/dev/null
 done | while read -r f; do d=$(dirname "$f"); case "$d" in */.sshos) d=$(dirname "$d");; esac; echo "$d"; done | sort -u | head -40
 `
 
@@ -275,6 +275,7 @@ export async function detectTrDirs(hostId: string): Promise<string[]> {
 const INSPECT = (dirs: string[]) => `
 for d in ${dirs.map(shq).join(' ')}; do
   [ -d "$d" ] || continue  # folder removed outside SSH OS
+  [ -O "$d" ] || continue  # only folders owned by this user (never run another user's scripts)
   echo "@@DIR $d"
   ls -1 "$d" 2>/dev/null | head -200
   echo "@@CFG"; cat "$d/${MC_DIR}/${TR_FILE}" 2>/dev/null
