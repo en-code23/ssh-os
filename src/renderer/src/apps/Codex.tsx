@@ -73,29 +73,28 @@ export function Codex({ win }: { win: Win }) {
   const loggedIn = !!st?.login && /logged in/i.test(st.login) && !/not logged in/i.test(st.login)
   const codex = st?.path || '$HOME/.local/bin/codex'
 
+  /**
+   * Installs/updates Codex with OpenAI's official standalone installer (install.sh from the
+   * release, checksum-verified). Since Codex 0.17x the CLI needs its full package (it runs a
+   * background app-server daemon); a lone binary fails with "no complete local package".
+   * The installer puts the package in ~/.codex/packages and links ~/.local/bin/codex (no sudo).
+   */
   const install = async () => {
     if (!hostId || !st || !latest) return
-    const arch = /aarch64|arm64/.test(st.arch) ? 'aarch64' : /x86_64|amd64/.test(st.arch) ? 'x86_64' : ''
-    if (!arch) return toast({ title: `Codex has no build for ${st.arch}`, body: 'Supported: x86_64 and arm64 (aarch64) Linux.', kind: 'error' })
-    const name = `codex-${arch}-unknown-linux-musl`
-    const asset = latest.assets.find((a) => a.name === `${name}.tar.gz`)
-    if (!asset) return toast({ title: 'Download not found in the latest release', kind: 'error' })
+    if (!/aarch64|arm64|x86_64|amd64/.test(st.arch)) return toast({ title: `Codex has no build for ${st.arch}`, body: 'Supported: x86_64 and arm64 (aarch64) Linux.', kind: 'error' })
+    const asset = latest.assets.find((a) => a.name === 'install.sh')
+    if (!asset) return toast({ title: 'The installer was not found in the latest Codex release', kind: 'error' })
     const sha = typeof asset.digest === 'string' && /^sha256:[a-f0-9]{64}$/.test(asset.digest) ? asset.digest.slice(7) : ''
-    if (!sha) return toast({ title: 'The download has no checksum, so it was not installed', kind: 'error' })
-    // installs into ~/.local/bin (no sudo); a system-wide codex elsewhere is left alone
+    if (!sha) return toast({ title: 'The installer has no checksum, so it was not run', kind: 'error' })
     if (st.path && !st.path.includes('/.local/bin/') && !(await confirm('Codex is installed system-wide', `Found ${st.path}. SSH OS will install its own copy in ~/.local/bin instead, which takes priority for this user.`, 'Continue'))) return
     const script = `set -e
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-mkdir -p "$HOME/.local/bin"
-echo "Downloading Codex ${latestVersion} (${arch})…"
-if command -v curl >/dev/null; then curl -fL --progress-bar -o "$T/c.tgz" ${shq(asset.browser_download_url)}; else wget -q -O "$T/c.tgz" ${shq(asset.browser_download_url)}; fi
-echo "${sha}  $T/c.tgz" | sha256sum -c - >/dev/null && echo "Checksum OK"
-tar xzf "$T/c.tgz" -C "$T"
-install -m 755 "$T/${name}" "$HOME/.local/bin/codex.new" && mv -f "$HOME/.local/bin/codex.new" "$HOME/.local/bin/codex"
-for f in "$HOME/.profile" "$HOME/.bashrc"; do
-  [ -f "$f" ] || [ "$f" = "$HOME/.profile" ] || continue
-  grep -qs '.local/bin' "$f" || { printf '\\n# added by SSH OS for Codex\\nexport PATH="$HOME/.local/bin:$PATH"\\n' >> "$f"; echo "Added ~/.local/bin to PATH in $(basename "$f")"; }
-done
+echo "Downloading the official Codex installer (${latestVersion})…"
+if command -v curl >/dev/null; then curl -fsSL -o "$T/install.sh" ${shq(asset.browser_download_url)}; else wget -q -O "$T/install.sh" ${shq(asset.browser_download_url)}; fi
+if command -v sha256sum >/dev/null; then echo "${sha}  $T/install.sh" | sha256sum -c - >/dev/null; else [ "$(openssl dgst -sha256 "$T/install.sh" | sed 's/^.*= //')" = "${sha}" ]; fi
+echo "Installer checksum OK"
+# an older SSH OS install was a plain file; the installer replaces it with a link to the package
+CODEX_NON_INTERACTIVE=true sh "$T/install.sh" --release ${shq(latestVersion)} < /dev/null
 "$HOME/.local/bin/codex" --version`
     const r = await runner.run(installed ? 'Updating Codex' : 'Installing Codex', script)
     if (r.code === 0) toast({ title: `Codex ${latestVersion} installed`, body: loggedIn ? undefined : 'Next: sign in with ChatGPT or an API key.', kind: 'success' })
@@ -134,8 +133,8 @@ done
   }
 
   const uninstall = async () => {
-    if (!hostId || !(await confirm('Uninstall Codex?', 'Removes ~/.local/bin/codex. Your settings and sign-in in ~/.codex are kept.', 'Uninstall', true))) return
-    await api.exec(hostId, `rm -f "$HOME/.local/bin/codex"`)
+    if (!hostId || !(await confirm('Uninstall Codex?', 'Removes ~/.local/bin/codex and the installed Codex packages. Your settings and sign-in in ~/.codex are kept.', 'Uninstall', true))) return
+    await api.exec(hostId, `sh -c ${shq('"$HOME/.local/bin/codex" app-server daemon stop >/dev/null 2>&1; rm -f "$HOME/.local/bin/codex" "$HOME/.local/bin/codex-code-mode-host"; rm -rf "$HOME/.codex/packages/standalone"')}`)
     refresh()
   }
 
