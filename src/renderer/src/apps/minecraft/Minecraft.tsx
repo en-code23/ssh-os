@@ -9,7 +9,7 @@ import { useMc, scanHost, refreshDirs, addExtraDir, removeExtraDir } from '../..
 import { ctl, defaultConfig, describeSchedule, MC_DIR, McConfig, McServer, removeCron, run, saveConfig, SLP_PY, writeManagement } from '../../lib/mc/server'
 import { serializeProps } from '../../lib/mc/properties'
 import { DuplicateSheet, duplicateScript, type DuplicateOptions } from './Duplicate'
-import { SOFTWARE } from '../../lib/mc/apis'
+import { SOFTWARE, compareMcVersions, latestStable, listVersions } from '../../lib/mc/apis'
 import { Toolbar } from '../../components/Window'
 import { Spinner, useMenu } from '../../components/ui'
 import { launch } from '../launch'
@@ -492,8 +492,23 @@ function Overview() {
 
   const canCmd = srv.running && srv.managed && !srv.external
 
+  // newer Minecraft version for this server software?
+  const [newest, setNewest] = useState('')
+  useEffect(() => {
+    if (!srv.managed || !SOFTWARE[c.software]?.autoUpdate || !c.mcVersion) return
+    listVersions(c.software).then((v) => setNewest(latestStable(v)?.id ?? '')).catch(() => {})
+  }, [c.software, c.mcVersion, srv.managed])
+  const behind = !!newest && compareMcVersions(newest, c.mcVersion) > 0
+
   return (
     <div className="grow scroll pad">
+      {behind && (
+        <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid var(--accent)', lineHeight: 1.5 }}>
+          <b>Minecraft {newest} is available</b>
+          <div className="small" style={{ marginTop: 4 }}>This server runs {c.mcVersion}. Players with a newer game can't join until you update. Check plugin compatibility in Content first; worlds are backed up before updating.</div>
+          <button className="btn primary" style={{ marginTop: 8 }} onClick={() => setTab('Updates')}>Update…</button>
+        </div>
+      )}
       <div className="mc-cards">
         <div className="mc-card">
           <div className="mc-card-h"><Users size={14} /> Players</div>

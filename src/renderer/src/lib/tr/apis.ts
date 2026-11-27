@@ -55,6 +55,23 @@ export async function latestRelease(sw: TrSoftware, uname: string): Promise<TrRe
   return { version: build.split('').join('.'), terraria: build.split('').join('.'), url: `https://terraria.org/api/download/pc-dedicated-server/${file}`, fileName: file }
 }
 
+/** Compares dotted version numbers (1.4.6.1 > 1.4.5.8). */
+export function cmpVersion(a = '', b = '') {
+  const x = a.split('.').map((n) => parseInt(n) || 0)
+  const y = b.split('.').map((n) => parseInt(n) || 0)
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0)
+  return 0
+}
+
+/** The newest Terraria version (from Re-Logic's official server downloads). */
+export async function latestTerraria(): Promise<string> {
+  const names = (await api.httpJson<string[]>('https://terraria.org/api/get/dedicated-servers-names')) ?? []
+  const builds = names.map((n) => n.match(/(\d{4,})/)?.[1]).filter(Boolean) as string[]
+  const best = builds.map((b) => b.split('').join('.')).sort(cmpVersion).pop()
+  if (!best) throw new Error('Could not read the Terraria version')
+  return best
+}
+
 /** Shell script that installs (or updates in place) the server files into `dir`. Worlds/config are kept. */
 /**
  * TShock is framework-dependent: it needs the .NET runtime version it was built for

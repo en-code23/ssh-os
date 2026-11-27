@@ -546,7 +546,8 @@ export function UpdatesTab() {
     if (m) setContentRes(JSON.parse(m[1]))
   }
 
-  const changeVersion = async () => {
+  const changeVersion = async (to = target) => {
+    const target = to
     if (!target) return
     const need = await javaFor(target)
     const ok = await confirm(
@@ -556,6 +557,7 @@ export function UpdatesTab() {
       true,
     )
     if (!ok) return
+    const wasRunning = srv.running && !srv.external
     try {
       const dl = await resolveServerJar(c.software, target)
       dl.fileName = safeFileName(dl.fileName, 'server.jar')
@@ -570,7 +572,12 @@ if command -v curl >/dev/null; then curl -fL -o ${shq(dl.fileName)} ${shq(dl.url
 mkdir -p .sshos/old-jars; [ ${shq(c.jar)} != ${shq(dl.fileName)} ] && [ -f ${shq(c.jar)} ] && mv ${shq(c.jar)} .sshos/old-jars/ || true
 echo "Done. Start the server to upgrade the world."`,
       )
-      if (r.code === 0) await saveCfg({ mcVersion: target, jar: dl.fileName, build: dl.build, paperFlags: dl.recommendedFlags?.join(' ') ?? c.paperFlags })
+      if (r.code === 0) {
+        await saveCfg({ mcVersion: target, jar: dl.fileName, build: dl.build, paperFlags: dl.recommendedFlags?.join(' ') ?? c.paperFlags })
+        // it was running before: start it again (the first start upgrades the world)
+        if (wasRunning) await ctl(srv.hostId, srv.dir, 'start')
+        toast({ title: `Now on Minecraft ${target}`, body: wasRunning ? 'The server is starting and upgrades the world.' : 'Start the server to upgrade the world.', kind: 'success' })
+      }
     } catch (e: any) {
       toast({ title: 'Version change failed', body: e.message, kind: 'error' })
     }
@@ -605,7 +612,7 @@ echo "Done. Start the server to upgrade the world."`,
         </Row>
         {sw.autoUpdate && newer[0] && (
           <Row label={`Minecraft ${newer.find((v) => v.stable)?.id ?? newer[0].id} is available`} sub={`This server runs ${c.mcVersion}. Check that your plugins support the new version first (Content tab shows compatibility).`}>
-            <button className="btn primary" onClick={() => setTarget(newer.find((v) => v.stable)?.id ?? newer[0].id)}>Select</button>
+            <button className="btn primary" onClick={() => changeVersion(newer.find((v) => v.stable)?.id ?? newer[0].id)}><ArrowUpCircle size={12} /> Update to {newer.find((v) => v.stable)?.id ?? newer[0].id}</button>
           </Row>
         )}
         {sw.autoUpdate && (
@@ -614,7 +621,7 @@ echo "Done. Start the server to upgrade the world."`,
               <option value="">{newer.length ? 'Choose…' : 'Already latest'}</option>
               {newer.slice(0, 60).map((v) => <option key={v.id} value={v.id}>{v.id}</option>)}
             </select>
-            <button className="btn" disabled={!target} onClick={changeVersion}>Change</button>
+            <button className="btn" disabled={!target} onClick={() => changeVersion()}>Change</button>
           </Row>
         )}
         {oldJars.length > 0 && (

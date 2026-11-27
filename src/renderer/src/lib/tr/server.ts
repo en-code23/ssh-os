@@ -51,6 +51,8 @@ export interface TrConfig {
   createdAt: number
   /** server website */
   web?: import('../web/site').WebSettings
+  /** set when the server was switched to the official server to get a newer Terraria version */
+  switchedFrom?: TrSoftware
 }
 
 export interface TrServer {

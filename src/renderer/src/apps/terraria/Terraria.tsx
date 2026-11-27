@@ -7,9 +7,9 @@ import { api, shq } from '../../lib/api'
 import { confirm, ensureConnected, prompt, toast, updateWindow, useStore, Win } from '../../lib/store'
 import { useTr, scanTrHost, refreshTrDirs, addTrDir, removeTrDir } from '../../lib/tr/store'
 import {
-  defaultTrConfig, HAS_ICU, INSTALL_ICU, parseServerConfig, saveTrConfig, serializeServerConfig, TR_FILE, TR_SOFTWARE, TrConfig, TrServer, WORLD_DIR, writeTrManagement,
+  defaultTrConfig, HAS_ICU, INSTALL_ICU, parseServerConfig, saveTrConfig, serializeServerConfig, TR_FILE, TR_SOFTWARE, TrConfig, TrServer, type TrSoftware, WORLD_DIR, writeTrManagement,
 } from '../../lib/tr/server'
-import { latestRelease, installScript } from '../../lib/tr/apis'
+import { cmpVersion, latestRelease, latestTerraria, installScript, supportOn } from '../../lib/tr/apis'
 import { TR_GROUPS, TR_PROPS } from '../../lib/tr/config'
 import { ctl, describeSchedule, MC_DIR, removeCron, run, type McServer } from '../../lib/mc/server'
 import { formatBytes } from '../../lib/files'
@@ -378,6 +378,8 @@ function Overview({ hostAddr }: { hostAddr: string }) {
   const [live, setLive] = useState<{ rss?: number; cpu?: number; etime?: string; ips: string[]; setupCode?: string; arch?: string; icu?: boolean } | null>(null)
   const [players, setPlayers] = useState<{ list: string[]; count: number } | null>(null)
   const [latest, setLatest] = useState<{ version: string; terraria?: string } | null | 'error'>(null)
+  const [game, setGame] = useState('')
+  const [tshockFor, setTshockFor] = useState('')
   const [say, setSay] = useState('')
   const canCmd = srv.running && srv.managed && !srv.external
 
@@ -401,6 +403,9 @@ cat ${shq(srv.dir + '/tshock/setup-code.txt')} 2>/dev/null | head -1; echo '@@';
   useEffect(() => {
     if (!live?.arch) return
     latestRelease(c.software, live.arch).then((r) => setLatest({ version: r.version, terraria: r.terraria })).catch(() => setLatest('error'))
+    latestTerraria().then(setGame).catch(() => {})
+    // which Terraria version the newest TShock supports (to offer switching back)
+    if (c.software !== 'tshock' && c.switchedFrom === 'tshock') latestRelease('tshock', live.arch).then((r) => setTshockFor(r.terraria ?? '')).catch(() => {})
   }, [live?.arch, c.software])
 
   const send = async (cmd: string, quiet = false) => {
@@ -440,10 +445,71 @@ ${was ? `sh ${shq(srv.dir)}/.sshos/ctl.sh start` : ''}`)
     reload()
   }
 
+  /** Moves the server to other server software in place (worlds, config and settings kept). */
+  const switchTo = async (target: TrSoftware) => {
+    if (!live?.arch) return
+    const sup = supportOn(target, live.arch)
+    if (!sup.ok) return toast({ title: `${TR_SOFTWARE[target].name} can't run on this machine`, body: sup.note, kind: 'error' })
+    const rel = await latestRelease(target, live.arch).catch((e) => { toast({ title: 'Could not find the download', body: e.message, kind: 'error' }); return null })
+    if (!rel) return
+    const toVanilla = target === 'vanilla'
+    const ok = await confirm(
+      toVanilla ? `Switch to the official Terraria server ${rel.version}?` : `Switch back to TShock ${rel.version} (Terraria ${rel.terraria})?`,
+      toVanilla
+        ? `Players on Terraria ${rel.version} can join again. The official server has no plugins, TShock accounts, permissions or server-side characters, so those stop working until you switch back (nothing is deleted: the tshock folder and plugins stay). Your worlds are backed up first and opened by ${rel.version}; once upgraded, an older TShock can't load them, so only switch back when TShock supports ${rel.version}.${srv.running ? ' The server is restarted.' : ''}`
+        : `TShock, its plugins, accounts and settings work again. Worlds are backed up first and kept.${srv.running ? ' The server is restarted.' : ''}`,
+      toVanilla ? 'Back Up & Switch' : 'Switch Back',
+    )
+    if (!ok) return
+    const was = srv.running && !srv.external
+    const r = await task(`Switching to ${TR_SOFTWARE[target].name} ${rel.version}`, `set -e
+${was ? `sh ${shq(srv.dir)}/.sshos/ctl.sh stop 10` : 'true'}
+sh ${shq(srv.dir)}/.sshos/backup.sh worlds
+${installScript(target, rel, srv.dir)}`)
+    if (r.code !== 0) { reload(); return }
+    const base = JSON.parse(await api.fs.readText(srv.hostId, `${srv.dir}/${MC_DIR}/${TR_FILE}`))
+    await saveTrConfig(srv.hostId, srv.dir, { ...base, software: target, version: rel.version, terraria: rel.terraria ?? rel.version, switchedFrom: toVanilla ? c.software : undefined })
+    if (was) await ctl(srv.hostId, srv.dir, 'start')
+    toast({ title: `Now running ${TR_SOFTWARE[target].name} ${rel.version}`, kind: 'success' })
+    reload()
+  }
+
+  // a newer Terraria than this server runs?
+  const curGame = c.software === 'vanilla' ? c.version : c.terraria ?? ''
+  const gameBehind = !!game && !!curGame && c.software !== 'tmodloader' && cmpVersion(game, curGame) > 0
+  const latestGame = latest && latest !== 'error' ? latest.terraria ?? latest.version : ''
+  const softwareCanUpdate = !!latestGame && cmpVersion(latestGame, curGame) > 0
+  const canVanilla = !!live?.arch && supportOn('vanilla', live.arch).ok
+  const tshockCaughtUp = c.software === 'vanilla' && c.switchedFrom === 'tshock' && !!tshockFor && cmpVersion(tshockFor, c.version) >= 0
+
   const addr = (h: string) => `${h}:${srv.port}`
   const upToDate = latest && latest !== 'error' && latest.version === c.version
   return (
     <div className="grow scroll pad">
+      {srv.managed && gameBehind && !softwareCanUpdate && c.software === 'tshock' && (
+        <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid var(--orange)', lineHeight: 1.5 }}>
+          <b>Terraria {game} is out, but TShock doesn't support it yet</b>
+          <div className="small" style={{ marginTop: 4 }}>
+            This server runs Terraria {curGame} (the newest TShock, {latest && latest !== 'error' ? latest.version : '…'}, is for {latest && latest !== 'error' ? latest.terraria : '…'}). Players whose game updated to {game} can't join until TShock releases an update; SSH OS shows it here as soon as it's out.
+            {canVanilla ? ` If players need ${game} now, switch to the official server (without TShock's plugins and accounts) and switch back later.` : ' The official server only runs on x86_64 machines, so on this machine the only option is to wait for TShock.'}
+          </div>
+          {canVanilla && <button className="btn" style={{ marginTop: 8 }} onClick={() => switchTo('vanilla')}><ArrowUpCircle size={12} /> Switch to Official Server {game}</button>}
+        </div>
+      )}
+      {srv.managed && gameBehind && softwareCanUpdate && (
+        <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid var(--accent)' }}>
+          <b>Terraria {latestGame || game} is available for this server</b>
+          <div className="small" style={{ marginTop: 4 }}>This server runs {curGame}. Players with a newer game can't join until you update.</div>
+          <button className="btn primary" style={{ marginTop: 8 }} onClick={update}><ArrowUpCircle size={12} /> Update Now</button>
+        </div>
+      )}
+      {srv.managed && tshockCaughtUp && (
+        <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid var(--green)' }}>
+          <b>TShock now supports Terraria {tshockFor}</b>
+          <div className="small" style={{ marginTop: 4 }}>You switched this server to the official server to get a newer Terraria. TShock has caught up, so you can switch back and get plugins, accounts and permissions again.</div>
+          <button className="btn primary" style={{ marginTop: 8 }} onClick={() => switchTo('tshock')}>Switch Back to TShock</button>
+        </div>
+      )}
       {live && live.icu === false && c.software !== 'vanilla' && (
         <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid var(--red)' }}>
           <b>Terraria needs the ICU library</b>
@@ -480,7 +546,7 @@ ${was ? `sh ${shq(srv.dir)}/.sshos/ctl.sh start` : ''}`)
           <div className="mc-card-h"><Gauge size={14} /> Version</div>
           <div className="mc-big" style={{ fontSize: 18 }}>{TR_SOFTWARE[c.software].name} {c.version || '?'}</div>
           <div className="small muted">
-            {latest === null ? 'Checking for updates…' : latest === 'error' ? 'Could not check for updates' : upToDate ? 'Up to date' : (
+            {latest === null ? 'Checking for updates…' : latest === 'error' ? 'Could not check for updates' : upToDate ? (gameBehind ? `Newest ${TR_SOFTWARE[c.software].name} · Terraria ${game} is out` : 'Up to date') : (
               <span className="row" style={{ gap: 6 }}><span style={{ color: 'var(--accent)' }}>{latest.version} available</span>{srv.managed && <button className="btn" style={{ height: 20 }} onClick={update}><ArrowUpCircle size={11} /> Update</button>}</span>
             )}
           </div>
