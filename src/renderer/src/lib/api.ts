@@ -61,6 +61,12 @@ export const api = {
     start: (id: string, sid: string, cmd: string): Promise<void> => c('stream:start', id, sid, cmd),
     stop: (sid: string): Promise<void> => c('stream:stop', sid),
   },
+  /** remote process on plain pipes (no PTY); events arrive as 'proc:event' {id, type: stdout|stderr|exit} */
+  proc: {
+    start: (id: string, pid: string, cmd: string): Promise<void> => c('proc:start', id, pid, cmd),
+    write: (pid: string, data: string): Promise<void> => c('proc:write', pid, data),
+    stop: (pid: string): Promise<void> => c('proc:stop', pid),
+  },
   term: {
     open: (id: string, tid: string, cols: number, rows: number, cwd?: string): Promise<void> =>
       c('term:open', id, tid, cols, rows, cwd),

@@ -828,6 +828,58 @@ impl Conns {
         }
     }
 
+    // ---------------- processes on plain pipes ----------------
+    /// Runs a remote command without a PTY: stdout and stderr arrive as separate events and
+    /// stdin can be written, so line-based protocols (JSON-RPC) pass through unchanged.
+    pub async fn start_proc(self: &Arc<Self>, id: &str, pid: &str, cmd: &str) -> Result<()> {
+        let h = self.ssh(id).await?;
+        let ch = open_session(&h).await?;
+        ch.exec(true, cmd).await?;
+        let (mut rd, wr) = ch.split();
+        self.streams.lock().await.insert(pid.to_string(), Live { server_id: id.to_string(), writer: wr });
+        let me = self.clone();
+        let pid = pid.to_string();
+        tokio::spawn(async move {
+            let mut out = Utf8Buf::default();
+            let mut err = Utf8Buf::default();
+            let mut code = Value::Null;
+            while let Some(msg) = rd.wait().await {
+                match msg {
+                    ChannelMsg::Data { data } => {
+                        let _ = me.app.emit("proc:event", json!({"id": pid, "type": "stdout", "data": out.push(&data)}));
+                    }
+                    ChannelMsg::ExtendedData { data, .. } => {
+                        let _ = me.app.emit("proc:event", json!({"id": pid, "type": "stderr", "data": err.push(&data)}));
+                    }
+                    ChannelMsg::ExitStatus { exit_status } => code = json!(exit_status),
+                    _ => {}
+                }
+            }
+            me.streams.lock().await.remove(&pid);
+            let _ = me.app.emit("proc:event", json!({"id": pid, "type": "exit", "code": code}));
+        });
+        Ok(())
+    }
+
+    pub async fn write_proc(&self, pid: &str, data: &str) -> Result<()> {
+        let streams = self.streams.lock().await;
+        let l = streams.get(pid).ok_or_else(|| anyhow!("The process has ended"))?;
+        l.writer.data(data.as_bytes()).await.map_err(|e| anyhow!("Could not write to the process: {e:?}"))?;
+        Ok(())
+    }
+
+    /// Closes stdin (most programs exit on EOF), then asks the process to stop.
+    pub async fn stop_proc(&self, pid: &str) {
+        if let Some(l) = self.streams.lock().await.get(pid) {
+            let _ = l.writer.eof().await;
+            let _ = l.writer.signal(russh::Sig::TERM).await;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        if let Some(l) = self.streams.lock().await.remove(pid) {
+            let _ = l.writer.close().await;
+        }
+    }
+
     // ---------------- terminals ----------------
     pub async fn open_terminal(self: &Arc<Self>, id: &str, tid: &str, cols: u32, rows: u32, cwd: Option<String>) -> Result<()> {
         let h = self.ssh(id).await?;

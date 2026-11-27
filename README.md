@@ -94,7 +94,11 @@ Every Minecraft and Terraria server can have its own private website, created in
 
 ## Codex
 
-The Codex app installs OpenAI's Codex CLI on any SSH server with the official installer (`~/.local/bin` and `~/.codex/packages`, no sudo, checksum-verified) and keeps it updated. You can sign in with ChatGPT (device code) or an API key. Then open Codex in any folder in a Terminal tab, choosing how much it may do on its own. In Finder, folders have an "Open Codex Here" item.
+The Codex app installs OpenAI's Codex CLI on any SSH server with the official installer (`~/.local/bin` and `~/.codex/packages`, no sudo, checksum-verified) and keeps it updated. Sign in with ChatGPT (device code) or an API key.
+
+- **Chat window:** talk to Codex in a native window. Messages stream in; commands appear with their live output; file edits appear as colored diffs, along with plans and reasoning summaries. Approve or decline commands and file changes with buttons, answer Codex's questions, and stop a turn. Earlier chats are listed and can be continued.
+- **Choose the folder and permissions** for each chat: Auto (edits inside the folder), Ask first, Read only or Full access. Pick the model and reasoning effort.
+- It uses Codex's own app-server protocol (the one the official IDE extensions use) over SSH, so chats are shared with the Codex terminal interface. Any chat can also be opened there, and Finder folders have an "Open Codex Here" item.
 
 ## Download
 

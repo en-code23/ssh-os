@@ -233,6 +233,18 @@ async fn dispatch(app: &AppHandle, st: &AppState, ch: &str, a: &[Value]) -> Resu
             conns.stop_stream(&s(a, 0)).await;
             Value::Null
         }
+        "proc:start" => {
+            conns.start_proc(&s(a, 0), &s(a, 1), &s(a, 2)).await?;
+            Value::Null
+        }
+        "proc:write" => {
+            conns.write_proc(&s(a, 0), &s(a, 1)).await?;
+            Value::Null
+        }
+        "proc:stop" => {
+            conns.stop_proc(&s(a, 0)).await;
+            Value::Null
+        }
         "term:open" => {
             let cwd = a.get(4).and_then(|v| v.as_str()).map(String::from);
             conns.open_terminal(&s(a, 0), &s(a, 1), a.get(2).and_then(|v| v.as_u64()).unwrap_or(80) as u32, a.get(3).and_then(|v| v.as_u64()).unwrap_or(24) as u32, cwd).await?;

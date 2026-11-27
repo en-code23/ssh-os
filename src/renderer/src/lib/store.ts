@@ -107,7 +107,7 @@ const DEFAULT_SIZES: Partial<Record<AppId, [number, number]>> = {
   info: [320, 520],
   minecraft: [1180, 740],
   terraria: [1180, 740],
-  codex: [820, 660],
+  codex: [1060, 720],
 }
 
 const SINGLETONS: AppId[] = ['servers', 'settings', 'about', 'shortcuts']

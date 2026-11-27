@@ -8,6 +8,7 @@ import { Segmented, Spinner } from '../components/ui'
 import { Toolbar } from '../components/Window'
 import { Row, Section, useTaskRunner } from './minecraft/common'
 import { launch } from './launch'
+import { CodexChat } from './codex/Chat'
 
 const REPO = 'openai/codex'
 
@@ -19,6 +20,8 @@ interface Status {
   git: boolean
   inPath: boolean
   home: string
+  /** installed as the full package (official installer) rather than a lone binary */
+  packaged: boolean
 }
 
 const STATUS = `P=$(command -v codex 2>/dev/null); [ -z "$P" ] && [ -x "$HOME/.local/bin/codex" ] && P="$HOME/.local/bin/codex"
@@ -28,7 +31,8 @@ uname -m; echo '@@'
 [ -n "$P" ] && "$P" login status 2>&1 | head -2; echo '@@'
 command -v git >/dev/null && echo yes; echo '@@'
 case ":$PATH:" in *":$HOME/.local/bin:"*) echo yes;; esac; echo '@@'
-echo "$HOME"`
+echo "$HOME"; echo '@@'
+[ -n "$P" ] && { [ -L "$P" ] || [ -d "$HOME/.codex/packages/standalone/current" ]; } && echo pkg`
 
 /** Codex runs on the server: install it there and open it in a Terminal tab. */
 export function Codex({ win }: { win: Win }) {
@@ -51,8 +55,8 @@ export function Codex({ win }: { win: Win }) {
     if (!hostId || !connected) return
     setSt(null)
     const r = await api.exec(hostId, `sh -c ${shq(STATUS)}`)
-    const [path, version, arch, login, git, inPath, home] = r.stdout.split('@@').map((x) => x.trim())
-    setSt({ path, version, arch, login, git: git === 'yes', inPath: inPath === 'yes', home })
+    const [path, version, arch, login, git, inPath, home, pkg] = r.stdout.split('@@').map((x) => x.trim())
+    setSt({ path, version, arch, login, git: git === 'yes', inPath: inPath === 'yes', home, packaged: pkg === 'pkg' })
     if (!folder) setFolder(home)
   }
 
@@ -72,6 +76,10 @@ export function Codex({ win }: { win: Win }) {
   const upToDate = installed && latestVersion && installedVersion === latestVersion
   const loggedIn = !!st?.login && /logged in/i.test(st.login) && !/not logged in/i.test(st.login)
   const codex = st?.path || '$HOME/.local/bin/codex'
+  const needsRepair = installed && !!st && !st.packaged && !!st.path.includes('/.local/bin/')
+  const [view, setView] = useState<'chat' | 'setup' | null>(null)
+  const ready = installed && loggedIn && !needsRepair
+  const shown = view ?? (ready ? 'chat' : 'setup')
 
   /**
    * Installs/updates Codex with OpenAI's official standalone installer (install.sh from the
@@ -98,6 +106,7 @@ CODEX_NON_INTERACTIVE=true sh "$T/install.sh" --release ${shq(latestVersion)} < 
 "$HOME/.local/bin/codex" --version`
     const r = await runner.run(installed ? 'Updating Codex' : 'Installing Codex', script)
     if (r.code === 0) toast({ title: `Codex ${latestVersion} installed`, body: loggedIn ? undefined : 'Next: sign in with ChatGPT or an API key.', kind: 'success' })
+    setView(null)
     refresh()
   }
 
@@ -156,12 +165,18 @@ CODEX_NON_INTERACTIVE=true sh "$T/install.sh" --release ${shq(latestVersion)} < 
       <Toolbar>
         <div style={{ width: 84 }} />
         <div className="toolbar-title" style={{ flex: 1 }}>Codex</div>
-        <select className="select" style={{ width: 200 }} value={hostId ?? ''} onChange={(e) => { setHostId(e.target.value); setSt(null); setFolder('') }}>
+        {ready && <Segmented value={shown} onChange={(v) => setView(v)} options={[{ value: 'chat', label: 'Chat' }, { value: 'setup', label: 'Setup' }]} />}
+        <select className="select" style={{ width: 200 }} value={hostId ?? ''} onChange={(e) => { setHostId(e.target.value); setSt(null); setFolder(''); setView(null) }}>
           {ssh.length === 0 && <option value="">No SSH servers</option>}
           {ssh.map((s) => <option key={s.id} value={s.id}>{conns[s.id]?.status === 'connected' ? '● ' : '○ '}{s.name}</option>)}
         </select>
         <button className="tb-btn" title="Refresh" onClick={refresh}><RefreshCw size={15} /></button>
       </Toolbar>
+      {hostId && connected && st && shown === 'chat' && ready ? (
+        <div className="grow" style={{ minHeight: 0 }}>
+          <CodexChat key={hostId} hostId={hostId} codexPath={st.path} home={st.home} folders={mcDirs} onSetup={() => setView('setup')} />
+        </div>
+      ) : (
       <div className="grow scroll pad" style={{ maxWidth: 760, width: '100%', margin: '0 auto' }}>
         {!hostId ? (
           <div className="empty"><h3>Add an SSH server first</h3><button className="btn" onClick={() => launch('servers')}>Open Servers</button></div>
@@ -179,12 +194,16 @@ CODEX_NON_INTERACTIVE=true sh "$T/install.sh" --release ${shq(latestVersion)} < 
 
             <Section title="Installation">
               <Row label={installed ? `Codex ${installedVersion || st.version}` : 'Not installed'} sub={installed ? st.path : `Installs to ~/.local/bin/codex (no sudo). ${st.arch}`}>
-                {installed && upToDate && <span className="badge" style={{ color: 'var(--green)' }}>Up to date</span>}
+                {installed && upToDate && !needsRepair && <span className="badge" style={{ color: 'var(--green)' }}>Up to date</span>}
+                {latestVersion && needsRepair && upToDate && (
+                  <button className="btn primary" disabled={runner.busy} onClick={install} title="Reinstalls Codex as the full package (needed for chats and the terminal interface)"><Download size={12} /> Repair Installation</button>
+                )}
                 {latestVersion && (!installed || !upToDate) && (
                   <button className="btn primary" disabled={runner.busy} onClick={install}><Download size={12} /> {installed ? `Update to ${latestVersion}` : `Install ${latestVersion}`}</button>
                 )}
                 {installed && st.path.includes('/.local/bin/') && <button className="tb-btn" title="Uninstall" onClick={uninstall}><Trash2 size={14} /></button>}
               </Row>
+              {needsRepair && <div className="small" style={{ color: 'var(--orange)', padding: '4px 0 8px' }}>This copy of Codex was installed by an older SSH OS as a single file. Newer Codex versions need the full package; Repair or Update reinstalls it with OpenAI's official installer (your sign-in and settings are kept).</div>}
               {installed && !st.inPath && <div className="small muted" style={{ padding: '4px 0 8px' }}>~/.local/bin was added to your PATH for new shells; SSH OS calls Codex by its full path meanwhile.</div>}
               {!st.git && <div className="small" style={{ color: 'var(--orange)', padding: '4px 0 8px' }}>git isn’t installed. Codex works best inside a git repository so you can review and undo its changes (sudo apt install git).</div>}
             </Section>
@@ -204,7 +223,7 @@ CODEX_NON_INTERACTIVE=true sh "$T/install.sh" --release ${shq(latestVersion)} < 
             )}
 
             {installed && (
-              <Section title="Start Codex">
+              <Section title="Codex in the Terminal" help="Codex's own full-screen terminal interface. The Chat tab offers the same in a window.">
                 <Row label="Folder" help="Codex works inside this folder: it can read and change files there. Use a git repository so you can review its changes.">
                   <input className="input mono" style={{ width: 300 }} value={folder} onChange={(e) => setFolder(e.target.value)} list="codex-folders" />
                   <datalist id="codex-folders">{[st.home, ...mcDirs].map((d) => <option key={d} value={d} />)}</datalist>
@@ -225,6 +244,7 @@ CODEX_NON_INTERACTIVE=true sh "$T/install.sh" --release ${shq(latestVersion)} < 
           </>
         )}
       </div>
+      )}
       {runner.el}
     </>
   )
