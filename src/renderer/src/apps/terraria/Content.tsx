@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowUpCircle, Download, ExternalLink, Package, Power, RefreshCw, Search, Settings2, Star, Trash2, Upload } from 'lucide-react'
+import { ArrowUpCircle, Check, Download, ExternalLink, Package, Power, RefreshCw, Search, Settings2, Star, Trash2, Upload } from 'lucide-react'
 import { api, shq } from '../../lib/api'
 import { confirm, toast } from '../../lib/store'
 import { MC_DIR, fetchCmd, run, safeFileName } from '../../lib/mc/server'
@@ -42,6 +42,39 @@ export function TrContentTab() {
 }
 
 // ============================================================ shared
+const norm = (x?: string | null) => (x ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+/** What is on the server: plugin .dll files, Workshop item folders and .tmod files. */
+function useInstalledIndex() {
+  const { srv } = useTrCtx()
+  const [idx, setIdx] = useState<{ dlls: string[]; workshop: string[]; tmods: string[] } | null>(null)
+  const refresh = async () => {
+    const r = await run(srv.hostId, `cd ${shq(srv.dir)} 2>/dev/null || exit 0
+ls -1 ServerPlugins 2>/dev/null | grep -iE '\\.dll(\\.disabled)?$'; echo '@@'
+ls -1 steamapps/workshop/content/${TML_APP} 2>/dev/null; echo '@@'
+ls -1 data/Mods 2>/dev/null | grep -iE '\\.tmod$'`)
+    const [d, w, t] = r.stdout.split('@@').map((x) => x.split('\n').map((l) => l.trim()).filter(Boolean))
+    setIdx({ dlls: d ?? [], workshop: w ?? [], tmods: t ?? [] })
+  }
+  useEffect(() => { refresh() }, [srv.dir]) // eslint-disable-line
+  const content = (srv.config.content ?? {}) as Record<string, TrContentRecord>
+  /** a GitHub plugin repo: by SSH OS's record, else by .dll name */
+  const pluginFile = (repo: string, title: string): string | null => {
+    if (!idx) return null
+    for (const [file, rec] of Object.entries(content)) if (rec.source === 'github' && rec.id === repo && idx.dlls.some((f) => f === file || f === file + '.disabled')) return file
+    const keys = [norm(title), norm(repo.split('/')[1])].filter((k) => k.length >= 3)
+    return idx.dlls.find((f) => keys.includes(norm(f.replace(/\.dll(\.disabled)?$/i, '')))) ?? null
+  }
+  /** a Workshop mod: by its download folder or SSH OS's record, else by .tmod name */
+  const modInstalled = (id: string, title: string): boolean => {
+    if (!idx) return false
+    if (idx.workshop.includes(id) || content[id]) return true
+    const k = norm(title)
+    return k.length >= 3 && idx.tmods.some((f) => norm(f.replace(/\.tmod$/i, '')) === k)
+  }
+  return { idx, refresh, pluginFile, modInstalled }
+}
+
 function useContentRegistry() {
   const { srv, saveCfg } = useTrCtx()
   const readCfg = async () => {
@@ -212,6 +245,7 @@ function InstalledPlugins({ onBrowse }: { onBrowse: () => void }) {
 function BrowsePlugins() {
   const { srv, task } = useTrCtx()
   const { record } = useContentRegistry()
+  const inst = useInstalledIndex()
   const [q, setQ] = useState('')
   const [dq, setDq] = useState('')
   const [hits, setHits] = useState<PluginRepo[] | null>(null)
@@ -229,6 +263,7 @@ function BrowsePlugins() {
   }, [dq])
 
   const install = async (h: PluginRepo) => {
+    if (inst.pluginFile(h.repo, h.title)) return toast({ title: `${h.title} is already installed`, body: 'Updates for installed plugins are in Installed.' })
     setBusy(h.repo)
     try {
       const rel = await latestPluginRelease(h.repo)
@@ -243,6 +278,7 @@ function BrowsePlugins() {
       if (r.code === 0) {
         const files = [...r.output.matchAll(/Installed (\S+\.dll)/g)].map((m) => m[1])
         for (const f of files.length ? files : [safeFileName(asset.name)]) await record(f, { source: 'github', id: h.repo, title: h.title, version: rel.tag })
+        inst.refresh()
       }
     } catch (e: any) {
       toast({ title: 'Install failed', body: e.message, kind: 'error' })
@@ -269,12 +305,15 @@ function BrowsePlugins() {
                   <div className="row" style={{ gap: 6 }}>
                     <b>{h.title}</b><span className="small muted">{h.repo.split('/')[0]}</span>
                     {stale && <span className="badge" style={{ color: 'var(--orange)' }} title={`No changes since TShock ${parseInt(ver)} was released`}>Not updated for TShock {parseInt(ver)}</span>}
+                    {inst.pluginFile(h.repo, h.title) && <span className="badge" style={{ color: 'var(--green)' }} title={inst.pluginFile(h.repo, h.title) ?? undefined}>✓ Installed</span>}
                   </div>
                   <div className="small muted mc-desc">{h.description || 'No description'}</div>
                   <div className="small muted row" style={{ gap: 10, marginTop: 3 }}><span><Star size={10} /> {h.stars}</span><span>Updated {new Date(h.updated).toLocaleDateString()}</span></div>
                 </div>
                 <div className="col" style={{ gap: 4 }}>
-                  <button className="btn primary" disabled={busy === h.repo} onClick={() => install(h)}>{busy === h.repo ? <Spinner size={11} /> : <Download size={11} />} Install</button>
+                  {inst.pluginFile(h.repo, h.title)
+                    ? <button className="btn" disabled title={`Installed as ServerPlugins/${inst.pluginFile(h.repo, h.title)}`}><Check size={11} /> Installed</button>
+                    : <button className="btn primary" disabled={busy === h.repo || !inst.idx} onClick={() => install(h)}>{busy === h.repo ? <Spinner size={11} /> : <Download size={11} />} Install</button>}
                   <button className="btn" onClick={() => api.openExternal(h.url)}>GitHub</button>
                 </div>
               </div>
@@ -392,6 +431,7 @@ function InstalledMods({ onBrowse }: { onBrowse: () => void }) {
 function BrowseMods() {
   const { srv, task } = useTrCtx()
   const { record } = useContentRegistry()
+  const inst = useInstalledIndex()
   const enabled = useEnabled()
   const [q, setQ] = useState('')
   const [dq, setDq] = useState('')
@@ -410,6 +450,7 @@ function BrowseMods() {
 
   const canInstall = /x86_64|amd64/.test(arch)
   const install = async (m: WorkshopItem) => {
+    if (inst.modInstalled(m.id, m.title)) return toast({ title: `${m.title} is already installed`, body: 'Updates for installed mods are in Installed.' })
     const c = modCompat(m.tags)
     if (c.status === 'incompatible' && !(await confirm(`${m.title} is not made for tModLoader ${TML_TAG}`, `${c.reason} Install anyway?`, 'Install Anyway'))) return
     const r = await task(`Installing ${m.title}`, workshopInstallScript(srv.dir, [m.id]))
@@ -418,6 +459,7 @@ function BrowseMods() {
     const name = n.stdout.trim().split('/').pop()?.replace(/\.tmod$/, '')
     if (name) await enabled.write([...(await enabled.read()), name])
     await record(m.id, { source: 'workshop', id: m.id, title: m.title })
+    inst.refresh()
     toast({ title: `${m.title} installed and enabled`, body: 'If the mod needs other mods (see its Workshop page), install them too. Restart the server to load it.', kind: 'success', action: { label: 'Workshop page', run: () => api.openExternal(`https://steamcommunity.com/sharedfiles/filedetails/?id=${m.id}`) } })
   }
 
@@ -439,7 +481,7 @@ function BrowseMods() {
               <div key={m.id} className="mc-result">
                 {m.preview ? <img src={m.preview} className="mc-addon-icon lg" alt="" /> : <div className="mc-addon-icon lg"><Package size={22} /></div>}
                 <div className="grow" style={{ minWidth: 0 }}>
-                  <div className="row" style={{ gap: 6 }}><b>{m.title}</b><CompatBadge c={c} label={`tML ${TML_TAG}`} /></div>
+                  <div className="row" style={{ gap: 6 }}><b>{m.title}</b><CompatBadge c={c} label={`tML ${TML_TAG}`} />{inst.modInstalled(m.id, m.title) && <span className="badge" style={{ color: 'var(--green)' }}>✓ Installed</span>}</div>
                   <div className="small muted mc-desc">{m.description}</div>
                   <div className="small muted row" style={{ gap: 10, marginTop: 3 }}>
                     <span>{m.subscriptions.toLocaleString()} subscribers</span><span>{formatBytes(m.size, true)}</span><span>Updated {new Date(m.updated).toLocaleDateString()}</span>
@@ -447,7 +489,9 @@ function BrowseMods() {
                   </div>
                 </div>
                 <div className="col" style={{ gap: 4 }}>
-                  <button className="btn primary" disabled={!canInstall} onClick={() => install(m)}><Download size={11} /> Install</button>
+                  {inst.modInstalled(m.id, m.title)
+                    ? <button className="btn" disabled><Check size={11} /> Installed</button>
+                    : <button className="btn primary" disabled={!canInstall || !inst.idx} onClick={() => install(m)}><Download size={11} /> Install</button>}
                   <button className="btn" onClick={() => api.openExternal(`https://steamcommunity.com/sharedfiles/filedetails/?id=${m.id}`)}>Workshop</button>
                 </div>
               </div>

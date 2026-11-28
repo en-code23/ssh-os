@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, ExternalLink, Package, RefreshCw, Search, Trash2, ArrowUpCircle, Power, X, Settings2 } from 'lucide-react'
+import { Check, Download, ExternalLink, Package, RefreshCw, Search, Trash2, ArrowUpCircle, Power, X, Settings2 } from 'lucide-react'
 import { launch } from '../launch'
 import { api, shq } from '../../lib/api'
 import { confirm, toast } from '../../lib/store'
 import {
   ContentHit, ContentKind, ContentSource, ContentVersion, fmtNum, listContentVersions, modrinthProject, resolveExternal, searchContent, SOFTWARE,
 } from '../../lib/mc/apis'
-import { fetchCmd, MC_DIR, run, safeFileName } from '../../lib/mc/server'
+import { fetchCmd, MC_DIR, run, safeFileName, type McServer } from '../../lib/mc/server'
 import { parseProps, serializeProps } from '../../lib/mc/properties'
 import { formatBytes } from '../../lib/files'
 import { checkApiVersion, checkDeclared, checkTested, inRange, type Compat } from '../../lib/mc/compat'
@@ -78,6 +78,66 @@ EOF`
 
 function destFor(kind: ContentKind, level: string) {
   return kind === 'plugin' ? 'plugins' : kind === 'mod' ? 'mods' : kind === 'datapack' ? `${level}/datapacks` : ''
+}
+
+// ---------------------------------------------------------------------------
+// "is this already installed?" for search results
+
+const norm = (x?: string | null) => (x ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+/** "LuckPerms-Bukkit-5.5.71.jar" → "luckperms" (name part before the version, loader suffix dropped) */
+const fileKey = (f: string) => norm(f.replace(/\.(jar|zip)(\.disabled)?$/i, '').split(/[-_ +]v?\d/)[0].replace(/[-_ ](bukkit|spigot|paper|fabric|folia|velocity|bungee(cord)?|plugin|mod)$/i, ''))
+
+interface InstalledIndex { list: Installed[]; rpUrl: string }
+
+/** Lists the server's add-ons (plugin/mod names, checksums) and matches them to Modrinth projects. */
+async function loadInstalledIndex(hostId: string, dir: string, level: string): Promise<InstalledIndex> {
+  const r = await run(hostId, `cd ${shq(dir)} || exit 1
+if command -v python3 >/dev/null; then
+${LIST_PY(level)}
+else
+  for d in plugins mods ${shq(level + '/datapacks')}; do [ -d "$d" ] && for f in "$d"/*; do [ -e "$f" ] && echo "F|$d|$(basename "$f")"; done; done
+fi
+echo "@@RP"; grep -E '^resource-pack=' server.properties 2>/dev/null | head -1 | cut -d= -f2-`, 60000)
+  const [body, rp] = r.stdout.split('@@RP')
+  let list: Installed[] = []
+  const last = body.trim().split('\n').pop() || ''
+  if (last.startsWith('[')) {
+    try { list = JSON.parse(last) } catch { list = [] }
+  } else {
+    list = body.split('\n').filter((l) => l.startsWith('F|')).map((l) => {
+      const [, d, file] = l.split('|')
+      return { dir: d, file, size: 0, kind: d === 'plugins' ? 'plugin' : d === 'mods' ? 'mod' : 'datapack', enabled: !file.endsWith('.disabled') } as Installed
+    })
+  }
+  const hashes = list.map((i) => i.sha1).filter(Boolean) as string[]
+  if (hashes.length) {
+    try {
+      const vers = await api.httpJson<Record<string, any>>('https://api.modrinth.com/v2/version_files', { method: 'POST', body: { hashes, algorithm: 'sha1' } })
+      list = list.map((i) => (i.sha1 && vers?.[i.sha1] ? { ...i, mrProject: vers[i.sha1].project_id } : i))
+    } catch { /* offline: names still work */ }
+  }
+  return { list, rpUrl: (rp ?? '').trim().replace(/\\:/g, ':') }
+}
+
+/** Finds a search result among the installed add-ons: by SSH OS's own record, Modrinth checksum, or name. */
+function findInstalled(hit: { source: string; id: string; slug?: string; title: string; kind: ContentKind }, idx: InstalledIndex | null, content: McServer['config']['content']): Installed | { file: ''; kind: ContentKind } | null {
+  if (!idx) return null
+  if (hit.kind === 'resourcepack') return idx.rpUrl && hit.source === 'modrinth' && idx.rpUrl.includes(`/data/${hit.id}/`) ? { file: '', kind: 'resourcepack' } : null
+  const present = (file: string) => idx.list.find((i) => i.file === file || i.file === file + '.disabled' || i.file + '.disabled' === file)
+  for (const [file, rec] of Object.entries(content ?? {})) {
+    if (rec.source === hit.source && String(rec.projectId) === String(hit.id)) {
+      const i = present(file)
+      if (i) return i
+    }
+  }
+  if (hit.source === 'modrinth') {
+    const i = idx.list.find((x) => x.mrProject === hit.id)
+    if (i) return i
+  }
+  const keys = [norm(hit.title), norm(hit.slug)].filter((k) => k.length >= 3)
+  return idx.list.find((i) => i.kind === hit.kind && (
+    [i.name, i.modid].some((n) => keys.includes(norm(n))) || (!i.name && !i.modid && keys.includes(fileKey(i.file)))
+  )) ?? null
 }
 
 export function ContentTab() {
@@ -409,6 +469,10 @@ function BrowseView() {
   const [sort, setSort] = useState<'relevance' | 'downloads' | 'updated'>('downloads')
   const [compatible, setCompatible] = useState(true)
   const [hits, setHits] = useState<ContentHit[] | null>(null)
+  const [idx, setIdx] = useState<InstalledIndex | null>(null)
+  const refreshIdx = () => loadInstalledIndex(srv.hostId, srv.dir, srv.levelName).then(setIdx).catch(() => {})
+  useEffect(() => { refreshIdx() }, [srv.dir]) // eslint-disable-line
+  const installedOf = (h: { source: string; id: string; slug?: string; title: string; kind: ContentKind }) => findInstalled(h, idx, srv.config.content)
   const [total, setTotal] = useState(0)
   const [error, setError] = useState('')
   const [detail, setDetail] = useState<ContentHit | null>(null)
@@ -465,22 +529,28 @@ function BrowseView() {
     }
 
     const dest = destFor(hit.kind, srv.levelName)
+    const old = installedOf(hit)
+    const oldFile = old && old.file && old.file !== fileName ? old.file : ''
     const sha1 = /^[a-f0-9]{40}$/i.test(v.sha1 ?? '') ? v.sha1 : undefined
     const verify = sha1 ? ` && if command -v sha1sum >/dev/null; then echo ${shq(`${sha1}  ${fileName}.part`)} | sha1sum -c - >/dev/null || { echo "Checksum mismatch"; rm -f ${shq(fileName + '.part')}; exit 4; }; fi` : ''
     const r = await task(
       `Installing ${hit.title} ${v.version}`,
-      `mkdir -p ${shq(srv.dir + '/' + dest)} && cd ${shq(srv.dir + '/' + dest)} && echo ${shq(`Downloading ${fileName}…`)} && ${fetchCmd(url, fileName + '.part')}${verify} && mv -f ${shq(fileName + '.part')} ${shq(fileName)} && echo ${shq(`Installed into ${dest}/${fileName}`)} && echo ${shq(hit.kind === 'datapack' ? 'Run /reload in the console or restart to enable it.' : 'Restart the server to load it.')}`,
+      `mkdir -p ${shq(srv.dir + '/' + dest)} && cd ${shq(srv.dir + '/' + dest)} && echo ${shq(`Downloading ${fileName}…`)} && ${fetchCmd(url, fileName + '.part')}${verify} && mv -f ${shq(fileName + '.part')} ${shq(fileName)}${oldFile ? ` && rm -f -- ${shq(oldFile)} && echo ${shq(`Removed the previous version (${oldFile})`)}` : ''} && echo ${shq(`Installed into ${dest}/${fileName}`)} && echo ${shq(hit.kind === 'datapack' ? 'Run /reload in the console or restart to enable it.' : 'Restart the server to load it.')}`,
       { quiet: !withDeps },
     )
     if (r.code !== 0) return false
     if (srv.managed) {
-      await saveCfg({ content: { ...srv.config.content, [fileName]: { source: hit.source, projectId: hit.id, versionId: v.id, title: hit.title, kind: hit.kind } } })
+      const content = { ...srv.config.content }
+      if (oldFile) { delete content[oldFile]; delete content[oldFile.replace(/\.disabled$/, '')] }
+      await saveCfg({ content: { ...content, [fileName]: { source: hit.source, projectId: hit.id, versionId: v.id, title: hit.title, kind: hit.kind } } })
     }
+    refreshIdx()
     // required dependencies (Modrinth)
     const deps = (v.dependencies ?? []).filter((d) => d.type === 'required')
     if (withDeps && deps.length) {
-      const projs = await Promise.all(deps.map((d) => modrinthProject(d.projectId).catch(() => null)))
-      const names = projs.filter(Boolean).map((p: any) => p.title)
+      const all = await Promise.all(deps.map((d) => modrinthProject(d.projectId).catch(() => null)))
+      const projs = all.filter((p: any) => p && !installedOf({ source: 'modrinth', id: p.id, slug: p.slug, title: p.title, kind: hit.kind }))
+      const names = projs.map((p: any) => p.title)
       if (names.length && (await confirm(`${hit.title} requires: ${names.join(', ')}`, 'Install the required dependencies too?', 'Install'))) {
         for (const p of projs.filter(Boolean) as any[]) {
           const h: ContentHit = { source: 'modrinth', id: p.id, slug: p.slug, title: p.title, author: '', description: '', downloads: 0, kind: hit.kind, url: '' }
@@ -493,6 +563,7 @@ function BrowseView() {
   }
 
   const quickInstall = async (hit: ContentHit) => {
+    if (installedOf(hit)) return toast({ title: `${hit.title} is already installed`, body: 'Use Versions to switch to another version (it replaces the installed one).' })
     setInstalling(hit.id)
     try {
       const vs = await listContentVersions(hit, sw.loaders, compatible ? srv.config.mcVersion : undefined)
@@ -544,6 +615,7 @@ function BrowseView() {
                   <b style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.title}</b>
                   {h.author && <span className="small muted">by {h.author}</span>}
                   {h.external && <span className="badge">External</span>}
+                  {installedOf(h) && <span className="badge" style={{ color: 'var(--green)' }} title={installedOf(h)?.file || undefined}>✓ Installed</span>}
                   {(() => {
                     const c = h.tested ? checkTested(h.gameVersions, srv.config.mcVersion) : checkDeclared({ gameVersions: h.gameVersions, kind: h.kind }, srv.config.mcVersion, srv.config.software)
                     if (c.status === 'incompatible') return <span className="badge" style={{ color: 'var(--red)' }} title={c.reason}>Not for {srv.config.mcVersion}</span>
@@ -559,9 +631,13 @@ function BrowseView() {
                 </div>
               </div>
               <div className="col" style={{ gap: 4, alignItems: 'stretch' }}>
-                <button className="btn primary" disabled={installing === h.id} onClick={() => quickInstall(h)}>
-                  {installing === h.id ? <Spinner size={11} /> : <Download size={11} />} {kind === 'resourcepack' ? 'Use' : 'Install'}
-                </button>
+                {installedOf(h) ? (
+                  <button className="btn" disabled title={installedOf(h)?.file ? `Installed as ${installedOf(h)?.file}` : 'This is the server resource pack'}><Check size={11} /> {kind === 'resourcepack' ? 'In Use' : 'Installed'}</button>
+                ) : (
+                  <button className="btn primary" disabled={installing === h.id || !idx} onClick={() => quickInstall(h)}>
+                    {installing === h.id ? <Spinner size={11} /> : <Download size={11} />} {kind === 'resourcepack' ? 'Use' : 'Install'}
+                  </button>
+                )}
                 <button className="btn" onClick={() => setDetail(h)}>Versions</button>
               </div>
             </div>
