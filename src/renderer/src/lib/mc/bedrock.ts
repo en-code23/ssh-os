@@ -130,17 +130,26 @@ export async function recentBedrockPlayers(srv: McServer): Promise<BedrockAttemp
   const r = await run(srv.hostId, `cd ${shq(srv.dir)} 2>/dev/null || exit 0
 cat logs/latest.log .sshos/console.prev.log .sshos/console.log 2>/dev/null | sed 's/\\x1b\\[[0-9;]*m//g' | grep -aiE '00000000-0000-0000-' | tail -n 400`)
   const seen = new Map<string, BedrockAttempt>()
+  // Only the server's own log lines count: the message must start right after the log prefix
+  // ("[14:03:04 INFO]: " in the console, "[14:03:04] [Thread/INFO]: " in logs/latest.log).
+  // Chat lines start with "<Name>" or "[Not Secure]" there, so players can't fake an entry.
+  const PREFIX = String.raw`^\[(\d{2}:\d{2}:\d{2})(?: [A-Z]+|\] \[[^\]<>]+\/[A-Z]+)\]: `
+  const NAME = String.raw`([A-Za-z0-9_.]{2,20})`
+  const UUID = String.raw`(00000000-0000-0000-[0-9a-f]{4}-[0-9a-f]{12})`
+  const patterns: { re: RegExp; uuid: number; name: number }[] = [
+    { re: new RegExp(PREFIX + String.raw`Disconnecting (?:com\.mojang\.authlib\.)?GameProfile[@\w]*\[id=` + UUID + String.raw`,\s*name=` + NAME + String.raw`[,\]].*white-?listed`, 'i'), uuid: 2, name: 3 },
+    { re: new RegExp(PREFIX + String.raw`\[floodgate\] Floodgate player logged in as ` + NAME + String.raw` joined \(UUID: ` + UUID + String.raw`\)\s*$`, 'i'), uuid: 3, name: 2 },
+    { re: new RegExp(PREFIX + String.raw`UUID of player ` + NAME + String.raw` is ` + UUID + String.raw`\s*$`, 'i'), uuid: 3, name: 2 },
+  ]
   for (const line of r.stdout.split('\n')) {
-    const when = line.match(/\[(\d{2}:\d{2}:\d{2})/)?.[1] ?? ''
-    let m = line.match(/id=(00000000-0000-0000-[0-9a-f]{4}-[0-9a-f]{12}),\s*name=([^,\]\s]+)/i)
-      ?? line.match(/name=([^,\]\s]+),\s*id=(00000000-0000-0000-[0-9a-f]{4}-[0-9a-f]{12})/i)
-    if (m && /^0{8}/.test(m[2])) m = [m[0], m[2], m[1]] as unknown as RegExpMatchArray
-    const n = m ?? line.match(/logged in as (\S+) joined \(UUID: (00000000-0000-0000-[0-9a-f-]{17})\)/i)
-      ?? line.match(/UUID of player (\S+) is (00000000-0000-0000-[0-9a-f-]{17})/i)
-    if (!n) continue
-    const [uuid, name] = n === m ? [n[1], n[2]] : [n[2], n[1]]
-    seen.delete(uuid.toLowerCase())
-    seen.set(uuid.toLowerCase(), { uuid: uuid.toLowerCase(), name, when })
+    for (const p of patterns) {
+      const m = line.trim().match(p.re)
+      if (!m) continue
+      const uuid = m[p.uuid].toLowerCase()
+      seen.delete(uuid)
+      seen.set(uuid, { uuid, name: m[p.name], when: m[1] })
+      break
+    }
   }
   return [...seen.values()].reverse()
 }

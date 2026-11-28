@@ -186,7 +186,7 @@ export function PlayersTab() {
               </Row>
               <div className="group-row small muted">Bedrock names start with “{br.prefix}” on the server (for example {br.prefix}Steve). Add them to the whitelist below with their Xbox gamertag; SSH OS marks them with a Bedrock badge.</div>
               {attempts.filter((a) => !(lists?.whitelist ?? []).some((e: any) => e.uuid === a.uuid)).slice(0, 8).map((a) => (
-                <Row key={a.uuid} label={<span className="row" style={{ gap: 6 }}><Smartphone size={13} /> {gamertagOf(a.name, br.prefix)} <span className="badge" style={{ color: 'var(--accent)' }}>Bedrock</span></span>} sub={`Tried to join${a.when ? ` at ${a.when}` : ''} · not on the whitelist`}>
+                <Row key={a.uuid} label={<span className="row" style={{ gap: 6 }}><Smartphone size={13} /> {gamertagOf(a.name, br.prefix)} <span className="badge" style={{ color: 'var(--accent)' }}>Bedrock</span></span>} sub={`Tried to join${a.when ? ` at ${a.when}` : ''} · not on the whitelist · Xbox ID ${BigInt('0x' + a.uuid.slice(19).replace('-', ''))}`}>
                   <button className="btn primary" onClick={() => allowAttempt(a)}><UserPlus size={12} /> Add to Whitelist</button>
                 </Row>
               ))}
