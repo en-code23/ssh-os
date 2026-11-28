@@ -26,6 +26,8 @@ pub struct Updater {
     http: reqwest::Client,
     state: Mutex<Value>,
     pending: Mutex<Option<Pending>>,
+    /// set once the swap helper has been started (avoids starting it twice)
+    swapping: std::sync::atomic::AtomicBool,
 }
 
 fn current_version(app: &AppHandle) -> String {
@@ -63,7 +65,7 @@ impl Updater {
         let cur = current_version(&app);
         let supported = !cfg!(debug_assertions) || std::env::var("SSHOS_FAKE_VERSION").is_ok();
         let status = if supported && asset_name().is_some() { "idle" } else { "unsupported" };
-        Self { app, http, state: Mutex::new(json!({"status": status, "current": cur})), pending: Mutex::new(None) }
+        Self { app, http, state: Mutex::new(json!({"status": status, "current": cur})), pending: Mutex::new(None), swapping: std::sync::atomic::AtomicBool::new(false) }
     }
 
     fn set(&self, patch: Value) {
@@ -184,7 +186,36 @@ impl Updater {
         Ok(file)
     }
 
+    /// "Restart to update": hands over to the swap helper, quits and reopens the new version.
     pub fn install(&self) -> Result<()> {
+        self.spawn_swap(true)?;
+        self.app.exit(0);
+        Ok(())
+    }
+
+    /// Called when the app quits: a downloaded update is installed in the background so the
+    /// next start already runs the new version (no click needed).
+    pub fn install_on_quit(&self) {
+        let ready = self.pending.lock().unwrap().as_ref().and_then(|p| p.file.clone()).is_some();
+        if ready {
+            let _ = self.spawn_swap(false);
+        }
+    }
+
+    /// Starts a helper that waits for this process to exit, swaps in the downloaded version
+    /// (rolling back if anything fails) and optionally opens it again.
+    fn spawn_swap(&self, reopen: bool) -> Result<()> {
+        if self.swapping.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Ok(());
+        }
+        let r = self.spawn_swap_inner(reopen);
+        if r.is_err() {
+            self.swapping.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+        r
+    }
+
+    fn spawn_swap_inner(&self, reopen: bool) -> Result<()> {
         let file = self.pending.lock().unwrap().as_ref().and_then(|p| p.file.clone()).ok_or_else(|| anyhow!("Update not downloaded yet"))?;
         let exe = std::env::current_exe()?;
         let pid = std::process::id();
@@ -215,31 +246,32 @@ rm -rf "$T.old"
 if mv "$T" "$T.old" && /usr/bin/ditto "$N" "$T"; then rm -rf "$T.old"; else rm -rf "$T"; mv "$T.old" "$T"; fi
 /usr/bin/xattr -cr "$T" 2>/dev/null
 rm -rf "$4"
-/usr/bin/open "$T"
+[ "$5" = 1 ] && /usr/bin/open "$T"
 "#;
             std::process::Command::new("/bin/sh")
                 .args(["-c", script, "sh", &pid.to_string()])
                 .arg(&bundle)
                 .arg(&new_app)
                 .arg(file.parent().unwrap())
+                .arg(if reopen { "1" } else { "0" })
                 .spawn()?;
         }
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
             // wait for us to exit, install silently, start the (updated) app again
+            let reopen_cmd = if reopen { format!("; Start-Process -FilePath '{}'", exe.display().to_string().replace('\'', "''")) } else { String::new() };
             let ps = format!(
-                "Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Process -FilePath '{}' -ArgumentList '/S' -Wait; Start-Process -FilePath '{}'",
+                "Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Process -FilePath '{}' -ArgumentList '/S' -Wait{}",
                 file.display().to_string().replace('\'', "''"),
-                exe.display().to_string().replace('\'', "''")
+                reopen_cmd
             );
             std::process::Command::new("powershell")
                 .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .spawn()?;
         }
-        let _ = exe;
-        self.app.exit(0);
+        let _ = (exe, reopen);
         Ok(())
     }
 }

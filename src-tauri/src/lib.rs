@@ -167,6 +167,12 @@ pub fn run() {
                 let st = app.state::<ipc::AppState>();
                 let conns = st.conns.clone();
                 tauri::async_runtime::block_on(async move { conns.disconnect_all().await });
+                // a downloaded update is installed now, so the next start runs the new version
+                st.updater.install_on_quit();
+            }
+            // Cmd+Q / Quit from the Dock on macOS ends with Exit (not ExitRequested)
+            if let RunEvent::Exit = ev {
+                app.state::<ipc::AppState>().updater.install_on_quit();
             }
         });
 }

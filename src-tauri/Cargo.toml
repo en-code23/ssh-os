@@ -1,6 +1,6 @@
 [package]
 name = "ssh-os"
-version = "2.4.1"
+version = "2.4.2"
 description = "A macOS-style desktop for your servers"
 edition = "2021"
 license = "MIT"
