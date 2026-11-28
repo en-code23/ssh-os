@@ -353,6 +353,8 @@ def mc_players():
         pos = d.get("Pos", [0, 0, 0])
         out.append({
             "uuid": uuid, "name": names.get(uuid, uuid[:8]), "op": uuid in ops, "banned": uuid in banned,
+            # Floodgate (Geyser) players: UUID built from the Xbox user ID
+            "bedrock": uuid.lower().startswith("00000000-0000-0000-"),
             "health": round(float(d.get("Health", 0)), 1), "food": d.get("foodLevel"), "level": d.get("XpLevel"),
             "pos": [int(pos[0]), int(pos[1]), int(pos[2])] if len(pos) == 3 else None,
             "dimension": str(d.get("Dimension", "")).split(":", 1)[-1],
@@ -582,7 +584,7 @@ function render(){
  ({Overview,Map:MapTab,World,Characters:People,Players:People,Console}[tab])(body)}
 function Overview(el){const w=S.world||{};
  el.append($('div',{class:'grid'},
-  $('div',{class:'card'},$('h3',{},'Players'),$('div',{class:'big'},S.running?(S.online==null?'?':S.online)+' / '+S.maxPlayers:'—'),$('div',{class:'list'},(S.players||[]).map(n=>$('span',{class:'chip'},n))),S.running&&!(S.players||[]).length?$('div',{class:'dim small'},'Nobody online'):null),
+  $('div',{class:'card'},$('h3',{},'Players'),$('div',{class:'big'},S.running?(S.online==null?'?':S.online)+' / '+S.maxPlayers:'—'),$('div',{class:'list'},(S.players||[]).map(n=>$('span',{class:'chip'},S.game==='minecraft'&&n.startsWith('.')?[n.slice(1),' ',$('span',{class:'pill'},'Bedrock')]:n))),S.running&&!(S.players||[]).length?$('div',{class:'dim small'},'Nobody online'):null),
   $('div',{class:'card'},$('h3',{},'Status'),$('div',{class:'big'},S.running?'Running':'Stopped'),$('div',{class:'dim small'},S.running&&S.since?'Up '+dur(S.now-S.since):'')),
   $('div',{class:'card'},$('h3',{},'Version'),$('div',{class:'big'},S.gameVersion||S.version||'—'),$('div',{class:'dim small'},S.software)),
   $('div',{class:'card'},$('h3',{},'World'),$('div',{class:'big'},w.name||'—'),$('div',{class:'dim small'},S.game==='terraria'?[w.sizeName,w.difficulty,w.evil].filter(Boolean).join(' · '):[w.gameMode,w.difficulty,w.hardcore?'Hardcore':''].filter(Boolean).join(' · ')))),
@@ -625,7 +627,7 @@ async function People(el){el.append($('div',{class:'dim'},'Loading…'));let d;t
   if(!d.ssc)el.append($('div',{class:'card dim',style:'margin-bottom:12px'},'Characters and inventories are stored on the server only when server-side characters (SSC) are on. Turn them on in SSH OS → Settings → TShock config files → sscconfig.json.'));
   d.characters.forEach(c=>el.append($('details',{},$('summary',{},$('b',{},c.account),$('span',{class:'dim'},'❤ '+c.health+'/'+c.maxHealth),$('span',{class:'dim'},'★ '+c.mana+'/'+c.maxMana),c.quests!=null?$('span',{class:'dim'},'Quests '+c.quests):null,c.deaths!=null?$('span',{class:'dim'},'Deaths '+c.deaths):null,$('span',{class:'dim'},c.inventory.length+' items')),inv(c.inventory))))}
  else{if(!d.players.length)el.append($('div',{class:'card dim'},'No players have joined yet.'));
-  d.players.forEach(p=>el.append($('details',{},$('summary',{},$('b',{},p.name),p.op?$('span',{class:'pill'},'Operator'):null,p.banned?$('span',{class:'pill off'},'Banned'):null,$('span',{class:'dim'},'❤ '+p.health),$('span',{class:'dim'},'Level '+p.level),$('span',{class:'dim'},p.playTimeHours+' h played'),$('span',{class:'dim'},'Deaths '+p.deaths),$('span',{class:'dim'},p.pos?p.dimension+' '+p.pos.join(', '):''),$('span',{class:'dim small'},'seen '+ago(p.lastSeen))),inv(p.inventory))))}}
+  d.players.forEach(p=>el.append($('details',{},$('summary',{},$('b',{},p.bedrock&&p.name.startsWith('.')?p.name.slice(1):p.name),p.bedrock?$('span',{class:'pill'},'Bedrock'):null,p.op?$('span',{class:'pill'},'Operator'):null,p.banned?$('span',{class:'pill off'},'Banned'):null,$('span',{class:'dim'},'❤ '+p.health),$('span',{class:'dim'},'Level '+p.level),$('span',{class:'dim'},p.playTimeHours+' h played'),$('span',{class:'dim'},'Deaths '+p.deaths),$('span',{class:'dim'},p.pos?p.dimension+' '+p.pos.join(', '):''),$('span',{class:'dim small'},'seen '+ago(p.lastSeen))),inv(p.inventory))))}}
 async function Console(el){const pre=$('pre',{},'Loading…');el.append(pre);try{const d=await api('/api/console');pre.textContent=d.lines.join('\n');pre.scrollTop=pre.scrollHeight}catch(e){pre.textContent=e.message}}
 api('/api/status').then(s=>{S=s;start()}).catch(()=>{});
 """

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, Download, Globe2, RefreshCw, RotateCcw, Search, Trash2, UserPlus, Upload, ArrowUpCircle, Play, Map as MapIcon, Plus } from 'lucide-react'
+import { Archive, Download, Globe2, RefreshCw, RotateCcw, Search, Trash2, UserPlus, Upload, ArrowUpCircle, Play, Map as MapIcon, Plus, Smartphone } from 'lucide-react'
 import { api, shq } from '../../lib/api'
 import { confirm, prompt, toast } from '../../lib/store'
 import { ctl, describeSchedule, MC_DIR, run, safeFileName } from '../../lib/mc/server'
@@ -10,6 +10,8 @@ import { formatBytes } from '../../lib/files'
 import { Spinner, Switch } from '../../components/ui'
 import { Row, Section, useCtx } from './common'
 import { SeedInput, WorldMapSheet } from './Website'
+import { bedrockDownloads, bedrockInstallScript, bedrockName, bedrockPlatform, bedrockStatus, floodgateUuid, gamertagOf, isBedrockUuid, parseBedrockId, recentBedrockPlayers, xuidFor, type BedrockAttempt, type BedrockStatus } from '../../lib/mc/bedrock'
+import { launch } from '../launch'
 import { renderWorldMap, type MapResult } from '../../lib/web/site'
 import { useLive } from './Minecraft'
 
@@ -26,11 +28,39 @@ const LISTS: { id: ListKind; label: string; help: string }[] = [
 ]
 
 export function PlayersTab() {
-  const { srv } = useCtx()
+  const { srv, task, host } = useCtx()
   const live = useLive(srv)
   const [lists, setLists] = useState<Record<ListKind, any[]> | null>(null)
   const [wl, setWl] = useState<{ on: boolean; enforce: boolean } | null>(null)
-  const [add, setAdd] = useState<{ kind: ListKind; name: string }>({ kind: 'whitelist', name: '' })
+  const [add, setAdd] = useState<{ kind: ListKind; name: string; bedrock: boolean }>({ kind: 'whitelist', name: '', bedrock: false })
+  const [br, setBr] = useState<BedrockStatus | null>(null)
+  const [brLatest, setBrLatest] = useState<{ geyser?: string; floodgate?: string } | null>(null)
+  const [attempts, setAttempts] = useState<BedrockAttempt[]>([])
+  const platform = bedrockPlatform(srv.config.software)
+  const hasFloodgate = !!br?.floodgate
+  const loadBedrock = () => {
+    bedrockStatus(srv).then(setBr).catch(() => setBr(null))
+    recentBedrockPlayers(srv).then(setAttempts).catch(() => {})
+  }
+  useEffect(() => { loadBedrock() }, [srv.dir]) // eslint-disable-line
+  useEffect(() => {
+    if (!platform || !br?.geyser) return
+    bedrockDownloads(platform, srv.config.mcVersion).then((d) => setBrLatest({ geyser: d.find((x) => /geyser/i.test(x.name))?.sha256, floodgate: d.find((x) => /floodgate/i.test(x.name))?.sha256 })).catch(() => {})
+  }, [platform, br?.geyser]) // eslint-disable-line
+  const brOutdated = !!br && !!brLatest && ((!!brLatest.geyser && !!br.geyserSha && brLatest.geyser !== br.geyserSha) || (!!brLatest.floodgate && !!br.floodgateSha && brLatest.floodgate !== br.floodgateSha))
+
+  const setupBedrock = async () => {
+    if (!platform) return
+    try {
+      const files = await bedrockDownloads(platform, srv.config.mcVersion)
+      const r = await task(br?.geyser ? 'Updating Geyser & Floodgate' : 'Setting up Bedrock support', bedrockInstallScript(srv.dir, platform, files))
+      if (r.code !== 0) return
+      await loadBedrock()
+      if (srv.running && (await confirm('Restart now to enable Bedrock players?', 'Players get a 10-second warning.', 'Restart'))) await ctl(srv.hostId, srv.dir, 'restart', '10')
+    } catch (e: any) {
+      toast({ title: 'Could not set up Bedrock support', body: e.message, kind: 'error' })
+    }
+  }
   const canCmd = srv.running && srv.managed && !srv.external
 
   const load = async () => {
@@ -56,9 +86,50 @@ export function PlayersTab() {
     load()
   }
 
+  const addBedrock = async () => {
+    if (!br) return
+    const typed = add.name.trim().replace(new RegExp('^' + br.prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), '')
+    const direct = parseBedrockId(typed)
+    const tag = direct ? (attempts.find((a) => a.uuid === direct)?.name.replace(br.prefix, '') ?? `Bedrock-${direct.slice(-6)}`) : typed
+    const xuid = direct ? null : await xuidFor(tag)
+    if (!direct && !xuid) {
+      return toast({
+        title: `“${tag}” isn't known yet`,
+        body: 'Bedrock gamertags can only be looked up after the player has joined any Geyser server once. Ask them to try joining your server: they then appear under “Bedrock players who tried to join” with an Add button. Or enter their XUID instead of the gamertag.',
+        kind: 'error',
+      })
+    }
+    const uuid = direct ?? floodgateUuid(xuid!)
+    const name = bedrockName(tag, br)
+    const cur = lists?.[add.kind] ?? []
+    if (cur.some((e: any) => e.uuid === uuid)) return toast({ title: `${tag} is already on the list` })
+    const onlineNow = !!live?.slp?.players?.sample?.some((p) => p.name === name)
+    if (canCmd && add.kind === 'whitelist' && !direct) {
+      await cmd(`fwhitelist add ${tag}`)
+    } else if (canCmd && onlineNow) {
+      await cmd(add.kind === 'ops' ? `op ${name}` : `ban ${name}`)
+    } else {
+      const now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' +0000'
+      const entry = add.kind === 'ops' ? { uuid, name, level: 4, bypassesPlayerLimit: false } : add.kind === 'whitelist' ? { uuid, name } : { uuid, name, created: now, source: 'SSH OS', expires: 'forever', reason: 'Banned by an operator.' }
+      await writeList(add.kind, [...cur, entry])
+      toast({ title: `Added Bedrock player ${tag}`, body: srv.running ? 'Takes effect after the next restart (the server reads this list when it starts).' : 'Takes effect when the server starts.', kind: 'success' })
+    }
+    setAdd((a) => ({ ...a, name: '' }))
+  }
+
+  /** whitelist a Bedrock player seen in the log (UUID known, no lookup) */
+  const allowAttempt = async (a: BedrockAttempt) => {
+    const cur = lists?.whitelist ?? []
+    if (cur.some((e: any) => e.uuid === a.uuid)) return toast({ title: `${gamertagOf(a.name, br?.prefix)} is already whitelisted` })
+    await writeList('whitelist', [...cur, { uuid: a.uuid, name: a.name }])
+    if (canCmd) await cmd('whitelist reload', true)
+    toast({ title: `${gamertagOf(a.name, br?.prefix)} can join now`, kind: 'success' })
+  }
+
   const addEntry = async () => {
     const name = add.name.trim()
     if (!name) return
+    if (add.bedrock && add.kind !== 'banned-ips') return addBedrock()
     if (canCmd) {
       const c = add.kind === 'ops' ? `op ${name}` : add.kind === 'whitelist' ? `whitelist add ${name}` : add.kind === 'banned-players' ? `ban ${name}` : `ban-ip ${name}`
       await cmd(c)
@@ -83,7 +154,9 @@ export function PlayersTab() {
   }
 
   const removeEntry = async (kind: ListKind, e: any) => {
-    if (canCmd) {
+    if (canCmd && kind === 'whitelist' && isBedrockUuid(e.uuid) && hasFloodgate) {
+      await cmd(`fwhitelist remove ${gamertagOf(e.name, br?.prefix)}`)
+    } else if (canCmd) {
       await cmd(kind === 'ops' ? `deop ${e.name}` : kind === 'whitelist' ? `whitelist remove ${e.name}` : kind === 'banned-players' ? `pardon ${e.name}` : `pardon-ip ${e.ip}`)
     } else {
       await writeList(kind, (lists?.[kind] ?? []).filter((x: any) => x !== e))
@@ -101,14 +174,39 @@ export function PlayersTab() {
   const online = live?.slp?.players
   return (
     <div className="grow scroll pad" style={{ maxWidth: 900, width: '100%', margin: '0 auto' }}>
+      {srv.managed && br && (
+        <Section title="Bedrock players" help="Players on phones, tablets, consoles and Windows (Minecraft Bedrock Edition) can join this Java server through Geyser and Floodgate. They sign in with their Xbox account; no Java account is needed.">
+          {!platform ? (
+            <div className="group-row muted small">{SOFTWARE[srv.config.software]?.name ?? srv.config.software} servers can't run Geyser. Use Paper, Purpur, Fabric or NeoForge for Bedrock players.</div>
+          ) : br.geyser && br.floodgate ? (
+            <>
+              <Row label={<span className="row" style={{ gap: 6 }}><Smartphone size={13} /> Bedrock players can join</span>} sub={`Geyser and Floodgate are installed. In Minecraft Bedrock: Servers → Add Server → address ${host.host}, port ${br.port}.`}>
+                {brOutdated && <button className="btn primary" onClick={setupBedrock}><ArrowUpCircle size={12} /> Update</button>}
+                <button className="btn" onClick={() => launch('terminal', { serverId: srv.hostId, forceNew: true, props: { command: `if command -v ufw >/dev/null && sudo ufw status | grep -q active; then sudo ufw allow ${br.port}/udp && sudo ufw status; elif command -v firewall-cmd >/dev/null; then sudo firewall-cmd --permanent --add-port=${br.port}/udp && sudo firewall-cmd --reload; else echo "No ufw/firewalld found. If players can't connect, allow UDP port ${br.port} in your router or hosting firewall."; fi` } })}>Open UDP {br.port}…</button>
+              </Row>
+              <div className="group-row small muted">Bedrock names start with “{br.prefix}” on the server (for example {br.prefix}Steve). Add them to the whitelist below with their Xbox gamertag; SSH OS marks them with a Bedrock badge.</div>
+              {attempts.filter((a) => !(lists?.whitelist ?? []).some((e: any) => e.uuid === a.uuid)).slice(0, 8).map((a) => (
+                <Row key={a.uuid} label={<span className="row" style={{ gap: 6 }}><Smartphone size={13} /> {gamertagOf(a.name, br.prefix)} <span className="badge" style={{ color: 'var(--accent)' }}>Bedrock</span></span>} sub={`Tried to join${a.when ? ` at ${a.when}` : ''} · not on the whitelist`}>
+                  <button className="btn primary" onClick={() => allowAttempt(a)}><UserPlus size={12} /> Add to Whitelist</button>
+                </Row>
+              ))}
+            </>
+          ) : (
+            <Row label="Let Bedrock players join" sub={`Installs Geyser and Floodgate (official GeyserMC builds, checksum-verified). Bedrock uses UDP port 19132, which may need opening in your firewall.${br.geyser || br.floodgate ? ` Found: ${[br.geyser, br.floodgate].filter(Boolean).join(', ')}.` : ''}`}>
+              <button className="btn primary" onClick={setupBedrock}><Smartphone size={12} /> Set Up Bedrock Support</button>
+            </Row>
+          )}
+        </Section>
+      )}
       <Section title={`Online now${online ? ` · ${online.online}/${online.max}` : ''}`} help="Live list from the server status ping (shows up to 12 names). Actions send console commands.">
         {!srv.running && <div className="group-row muted">The server is stopped.</div>}
         {srv.running && !online?.sample?.length && <div className="group-row muted">{live ? 'Nobody is online.' : 'Loading…'}</div>}
         {online?.sample?.map((p) => (
           <div key={p.id} className="group-row">
             <div className="row">
-              <img className="mc-head" src={`https://mc-heads.net/avatar/${p.id}/24`} alt="" onError={(e) => ((e.target as HTMLImageElement).style.visibility = 'hidden')} />
-              <b>{p.name}</b>
+              {isBedrockUuid(p.id) ? <div className="mc-head" style={{ display: 'grid', placeItems: 'center' }}><Smartphone size={14} /></div> : <img className="mc-head" src={`https://mc-heads.net/avatar/${p.id}/24`} alt="" onError={(e) => ((e.target as HTMLImageElement).style.visibility = 'hidden')} />}
+              <b>{isBedrockUuid(p.id) ? gamertagOf(p.name, br?.prefix) : p.name}</b>
+              {isBedrockUuid(p.id) && <span className="badge" style={{ color: 'var(--accent)' }}>Bedrock</span>}
             </div>
             <div className="row">
               <select className="select" style={{ width: 120 }} disabled={!canCmd} value="" onChange={(e) => e.target.value && cmd(`gamemode ${e.target.value} ${p.name}`)}>
@@ -137,7 +235,13 @@ export function PlayersTab() {
             <select className="select" style={{ width: 170 }} value={add.kind} onChange={(e) => setAdd({ ...add, kind: e.target.value as ListKind })}>
               {LISTS.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
             </select>
-            <input className="input grow" placeholder={add.kind === 'banned-ips' ? 'IP address' : 'Minecraft username'} value={add.name} onChange={(e) => setAdd({ ...add, name: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && addEntry()} />
+            {add.kind !== 'banned-ips' && (
+              <div className="segmented" title={hasFloodgate ? undefined : 'Set up Bedrock support (above) first'}>
+                <button className={!add.bedrock ? 'on' : ''} onClick={() => setAdd({ ...add, bedrock: false })}>Java</button>
+                <button className={add.bedrock ? 'on' : ''} disabled={!hasFloodgate} onClick={() => setAdd({ ...add, bedrock: true })}>Bedrock</button>
+              </div>
+            )}
+            <input className="input grow" placeholder={add.kind === 'banned-ips' ? 'IP address' : add.bedrock ? 'Xbox gamertag (or XUID)' : 'Minecraft username'} value={add.name} onChange={(e) => setAdd({ ...add, name: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && addEntry()} />
           </div>
           <button className="btn primary" disabled={!add.name.trim()} onClick={addEntry}><UserPlus size={12} /> Add</button>
         </div>
@@ -151,8 +255,9 @@ export function PlayersTab() {
             lists[l.id].map((e: any, i: number) => (
               <div key={i} className="group-row">
                 <div className="row">
-                  {e.uuid && <img className="mc-head" src={`https://mc-heads.net/avatar/${e.uuid}/24`} alt="" onError={(ev) => ((ev.target as HTMLImageElement).style.visibility = 'hidden')} />}
-                  <b>{e.name ?? e.ip}</b>
+                  {e.uuid && (isBedrockUuid(e.uuid) ? <div className="mc-head" style={{ display: 'grid', placeItems: 'center' }}><Smartphone size={14} /></div> : <img className="mc-head" src={`https://mc-heads.net/avatar/${e.uuid}/24`} alt="" onError={(ev) => ((ev.target as HTMLImageElement).style.visibility = 'hidden')} />)}
+                  <b>{isBedrockUuid(e.uuid) ? gamertagOf(e.name ?? '', br?.prefix) : e.name ?? e.ip}</b>
+                  {isBedrockUuid(e.uuid) && <span className="badge" style={{ color: 'var(--accent)' }} title={`Bedrock (Xbox) player · Floodgate name ${e.name}`}>Bedrock</span>}
                   {e.level && <span className="badge">level {e.level}</span>}
                   {e.reason && <span className="small muted">{e.reason}</span>}
                 </div>

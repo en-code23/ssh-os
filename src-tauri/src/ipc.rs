@@ -31,6 +31,8 @@ const API_HOSTS: &[&str] = &[
     "meta.fabricmc.net", "piston-meta.mojang.com", "launchermeta.mojang.com", "api.mojang.com", "api.github.com", "api.adoptium.net",
     // Terraria: official server downloads, Steam Workshop (tModLoader mods)
     "terraria.org", "api.steampowered.com", "steamcommunity.com",
+    // Bedrock players on Java servers: Geyser/Floodgate downloads and Xbox gamertag lookup
+    "download.geysermc.org", "api.geysermc.org",
 ];
 
 pub fn apply_theme(app: &AppHandle, appearance: &str) {

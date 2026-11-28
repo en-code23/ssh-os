@@ -52,6 +52,7 @@ When SSH OS finds a Minecraft Java server on a connected machine, a **Minecraft 
 - **Duplicate servers:** copy a server (with or without its worlds) to a new folder with its own port, schedules and identity. Running servers pause saving briefly so the copy is consistent.
 - **Compatibility:** every installed plugin, mod, data pack and resource pack is checked against the server's Minecraft version and software (Modrinth data, `plugin.yml` api-version, Fabric version ranges). Incompatible ones are flagged with the reason, and search results show whether they support your version.
 - **New Minecraft versions:** the overview shows when a newer version is out; Updates → "Update to …" backs up the worlds, switches the server and restarts it.
+- **Bedrock players:** one click installs Geyser and Floodgate (official builds, checksum-verified) so phone, console and Windows players can join. Add them to the whitelist, ops or bans with their Xbox gamertag (or XUID). Players who were turned away by the whitelist are listed with an "Add" button. Bedrock players carry a badge everywhere, including on the server website.
 - **Plugin updates and configs:** updates are checked automatically when you open Content ("Update All"), and each plugin's config files open in the Code Editor from the gear button.
 - **Manage servers:**
   - Start, stop and restart, with a warning countdown, in a tmux/screen session (or in the background).
